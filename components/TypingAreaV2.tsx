@@ -160,7 +160,7 @@ const TypingAreaV2: React.FC<Props> = ({
       if (!isActuallyComposing && (userChar === ' ' || userChar === '\n')) {
         if (targetIdx < content.length && content[targetIdx] === '\n') {
           if (lastCharCommitted) {
-            playTypingSound('\n'); // Trigger Enter sound on paragraph advance
+            // CRITICAL FIX: Removed playTypingSound from here. side-effects must not be in useMemo.
             while (targetIdx < content.length && content[targetIdx] === '\n') { resultText += '\n'; targetIdx++; }
             while (targetIdx < content.length) {
               if (tryConsumeEllipsis()) continue;
@@ -322,7 +322,10 @@ const TypingAreaV2: React.FC<Props> = ({
     // Typing Sound Logic (Non-composition keys)
     const isIMEActive = (e.nativeEvent as any).isComposing;
     if (!isIMEActive) {
+      // Play Enter sound if manual Enter is pressed OR if Space is used to advance a line break
       if (e.key === 'Enter') {
+        playTypingSound('\n');
+      } else if (e.key === ' ' && session.content[typedText.length] === '\n') {
         playTypingSound('\n');
       } else if (e.key.length === 1 && /^[a-zA-Z]$/.test(e.key)) {
         playTypingSound(e.key);

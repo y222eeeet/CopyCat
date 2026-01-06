@@ -29,11 +29,11 @@ class SoundPool {
 }
 
 // Preload audio files at initialization with Vercel-compatible relative paths
-const keyboard1 = new SoundPool('/sounds/Keyboard1.mp3', 12, 0.5);
-const keyboard2 = new SoundPool('/sounds/Keyboard2.mp3', 12, 0.5);
-const keyboard3 = new SoundPool('/sounds/Keyboard3.mp3', 12, 0.5);
-const keyboard4 = new SoundPool('/sounds/Keyboard4.mp3', 12, 0.5);
-const enterSound = new SoundPool('/sounds/Enter.mp3', 8, 0.7);
+const keyboard1 = new SoundPool('/sounds/Keyboard1.mp3', 12, 0.2);
+const keyboard2 = new SoundPool('/sounds/Keyboard2.mp3', 12, 0.2);
+const keyboard3 = new SoundPool('/sounds/Keyboard3.mp3', 12, 0.2);
+const keyboard4 = new SoundPool('/sounds/Keyboard4.mp3', 12, 0.2);
+const enterSound = new SoundPool('/sounds/Enter.mp3', 8, 0.35);
 
 const K1_REGEX = /^[A-F]$/i;
 const K2_REGEX = /^[G-L]$/i;
