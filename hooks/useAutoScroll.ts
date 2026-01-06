@@ -1,5 +1,5 @@
-
-import { useCallback, useRef, useEffect } from 'react';
+// Import React to provide the React namespace for RefObject
+import React, { useCallback, useRef, useEffect } from 'react';
 
 interface AutoScrollOptions {
   containerRef: React.RefObject<HTMLElement | null>;

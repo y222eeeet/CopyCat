@@ -1,33 +1,39 @@
 
 class SoundPool {
-  private voices: HTMLAudioElement[];
+  private voices: HTMLAudioElement[] = [];
   private currentIndex: number = 0;
 
   constructor(src: string, poolSize: number, volume: number) {
-    this.voices = Array.from({ length: poolSize }, () => {
-      const audio = new Audio(src);
-      audio.volume = volume;
-      audio.preload = 'auto';
-      return audio;
-    });
+    if (typeof window !== 'undefined' && typeof Audio !== 'undefined') {
+      this.voices = Array.from({ length: poolSize }, () => {
+        const audio = new Audio(src);
+        audio.volume = volume;
+        audio.preload = 'auto';
+        return audio;
+      });
+    }
   }
 
   play() {
+    if (this.voices.length === 0) return;
     const audio = this.voices[this.currentIndex];
     // Apply very small random playbackRate variation (±3–5%)
     audio.playbackRate = 0.95 + Math.random() * 0.1;
     audio.currentTime = 0;
-    audio.play().catch(() => {}); // Safely catch if browser blocks audio
+    audio.play().catch(() => {
+      // Browsers often block audio until first user interaction
+      // This is expected and should not crash the app.
+    });
     this.currentIndex = (this.currentIndex + 1) % this.voices.length;
   }
 }
 
-// Preload audio files at initialization
-const keyboard1 = new SoundPool('/sounds/Keyboard1.mp3', 12, 0.2);
-const keyboard2 = new SoundPool('/sounds/Keyboard2.mp3', 12, 0.2);
-const keyboard3 = new SoundPool('/sounds/Keyboard3.mp3', 12, 0.2);
-const keyboard4 = new SoundPool('/sounds/Keyboard4.mp3', 12, 0.2);
-const enterSound = new SoundPool('/sounds/Enter.mp3', 8, 0.35);
+// Preload audio files at initialization with Vercel-compatible relative paths
+const keyboard1 = new SoundPool('./sounds/Keyboard1.mp3', 12, 0.2);
+const keyboard2 = new SoundPool('./sounds/Keyboard2.mp3', 12, 0.2);
+const keyboard3 = new SoundPool('./sounds/Keyboard3.mp3', 12, 0.2);
+const keyboard4 = new SoundPool('./sounds/Keyboard4.mp3', 12, 0.2);
+const enterSound = new SoundPool('./sounds/Enter.mp3', 8, 0.35);
 
 const K1_REGEX = /^[A-F]$/i;
 const K2_REGEX = /^[G-L]$/i;
