@@ -14,7 +14,6 @@ const getCachedDecomposition = (char: string) => {
   return res;
 };
 
-// Character data interface for mapping
 interface UserCharData {
   char: string;
   isMistake: boolean;
@@ -30,28 +29,23 @@ const MemoizedLine = React.memo(({
 }: any) => {
   return (
     <div className="min-h-[1.6em] relative">
-      {/* Ghost layer (Target Text / Background) */}
       <div className="absolute top-0 left-0 w-full pointer-events-none">
         {line.split('').map((char: string, cIdx: number) => {
           const absIdx = lineOffset + cIdx;
           const isBeingComposed = absIdx === composingIdx && isComposing;
           
-          let color = '#E5E7EB'; // Default gray for untyped
-          
+          let color = '#E5E7EB'; 
           if (isBeingComposed) {
             color = 'transparent';
           } else if (targetToUserMap.has(absIdx)) {
-            // Hide background where user typed to prevent overlap
             color = 'transparent';
           } else if (activatedPunct.has(absIdx)) {
-            // Auto-activated punctuation
             color = '#333333';
           }
           
           return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }}>{char}</span>;
         })}
       </div>
-      {/* User Input layer */}
       <div className="relative w-full z-10 pointer-events-none">
         {line.split('').map((targetChar: string, cIdx: number) => {
           const absIdx = lineOffset + cIdx;
@@ -59,7 +53,7 @@ const MemoizedLine = React.memo(({
           
           if (userData) {
             if (PUNCT_SET.includes(userData.char)) return <span key={absIdx} className="invisible">{userData.char}</span>;
-            return <span key={absIdx} className={userData.isMistake ? 'text-red-500' : 'text-black'}>{userData.char}</span>;
+            return <span key={absIdx} className={userData.isMistake ? 'text-red-500 font-bold' : 'text-black'}>{userData.char}</span>;
           }
           return <span key={absIdx} className="invisible">{targetChar}</span>;
         })}
@@ -144,11 +138,10 @@ const TypingAreaV2: React.FC<Props> = ({
     let targetIdx = 0;
     let isLastCharComplete = false;
     let composingTargetIdx = -1;
-    let lastMistakeIdx = -1;
     const targetToUserMap = new Map<number, UserCharData>();
     const activated = new Set<number>();
+    const mistakes = new Set<number>();
 
-    // Skip consecutive punctuation at the current position
     const skipCurrentPunct = () => {
         while (targetIdx < content.length && PUNCT_SET.includes(content[targetIdx])) {
             activated.add(targetIdx);
@@ -156,7 +149,6 @@ const TypingAreaV2: React.FC<Props> = ({
         }
     };
 
-    // Activate all punctuation in the current word block (up to next space/newline)
     const activateTrailingPunctInWord = (startFrom: number) => {
         let search = startFrom;
         while (search < content.length && content[search] !== ' ' && content[search] !== '\n') {
@@ -167,7 +159,6 @@ const TypingAreaV2: React.FC<Props> = ({
         }
     };
 
-    // Initial activation (at document start)
     skipCurrentPunct();
 
     const inputLen = userInput.length;
@@ -176,30 +167,25 @@ const TypingAreaV2: React.FC<Props> = ({
       const isLastIndex = i === inputLen - 1;
       const isActuallyComposing = isLastIndex && isComposing;
 
-      // Before processing the next character, skip only punctuation
       while (targetIdx < content.length && PUNCT_SET.includes(content[targetIdx])) {
           activated.add(targetIdx);
           targetIdx++;
       }
 
-      // Handle Jumps (Space or Enter)
       if (!isActuallyComposing && (userChar === ' ' || userChar === '\n')) {
         let ahead = targetIdx;
         while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
         
         if (ahead < content.length && content[ahead] === '\n') {
-          // Jump to next line
           while (targetIdx < ahead) {
             if (PUNCT_SET.includes(content[targetIdx])) activated.add(targetIdx);
             targetIdx++;
           }
           while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
-          
           skipCurrentPunct(); 
           if (isLastIndex) isLastCharComplete = true;
           continue;
         } else {
-            // Match space
             if (content[targetIdx] === ' ' || content[targetIdx] === '\n') {
                 targetIdx++;
                 while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
@@ -207,7 +193,7 @@ const TypingAreaV2: React.FC<Props> = ({
                 continue;
             } else {
                 targetToUserMap.set(targetIdx, { char: userChar, isMistake: true });
-                lastMistakeIdx = i;
+                mistakes.add(targetIdx);
                 targetIdx++;
                 if (isLastIndex) isLastCharComplete = true;
                 continue;
@@ -220,54 +206,58 @@ const TypingAreaV2: React.FC<Props> = ({
 
       const isCorrectPrefix = isJamoPrefix(userChar, targetChar, content[targetIdx + 1]);
       const isComplete = isSufficientlyCompleted(userChar, targetChar);
-      const isMistake = !isCorrectPrefix || (!isActuallyComposing && !isComplete);
+      
+      // Strict matching for committed characters
+      let isMistake = false;
+      if (isActuallyComposing) {
+          isMistake = !isCorrectPrefix;
+      } else {
+          isMistake = userChar !== targetChar;
+      }
 
       if (!isMistake) {
         if (isActuallyComposing) composingTargetIdx = targetIdx;
         targetToUserMap.set(targetIdx, { char: userChar, isMistake: false });
         
-        // As soon as a character (or prefix) is correct, activate ALL punctuation attached to this word cluster
+        // Immediate punctuation activation upon correct input/prefix
         activateTrailingPunctInWord(targetIdx);
 
         const lastCommitted = isBodyChar(targetChar) ? isComplete : !isActuallyComposing;
         targetIdx++;
         
-        // Also skip immediately following punctuation if fully committed
         if (lastCommitted) {
             skipCurrentPunct();
             if (content[targetIdx-1] === '\n') skipCurrentPunct();
         }
-        
         if (isLastIndex) isLastCharComplete = lastCommitted;
       } else { 
         targetToUserMap.set(targetIdx, { char: userChar, isMistake: true });
-        if (isLastIndex && !isActuallyComposing) lastMistakeIdx = i;
+        mistakes.add(targetIdx);
         targetIdx++; 
         if (isLastIndex) isLastCharComplete = true;
       }
     }
 
-    // Final punctuation activation
     skipCurrentPunct();
 
-    return { targetToUserMap, activated, composingTargetIdx, isLastCharComplete, targetIdxReached: targetIdx, lastMistakeIdx };
+    return { targetToUserMap, activated, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached: targetIdx };
   }, [userInput, isComposing, content, isSufficientlyCompleted, isBodyChar]);
 
-  const { targetToUserMap, activated, composingTargetIdx, isLastCharComplete, targetIdxReached, lastMistakeIdx } = alignedState;
+  const { targetToUserMap, activated, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached } = alignedState;
 
-  const prevMistakeRef = useRef<number>(-1);
+  // Improved Error Sound Logic: trigger whenever total mistake count increases
+  const prevMistakeCount = useRef<number>(0);
   useEffect(() => {
-    if (lastMistakeIdx !== -1 && lastMistakeIdx !== prevMistakeRef.current) {
+    if (mistakes.size > prevMistakeCount.current) {
       playErrorSound();
-      prevMistakeRef.current = lastMistakeIdx;
     }
-  }, [lastMistakeIdx]);
+    prevMistakeCount.current = mistakes.size;
+  }, [mistakes.size]);
 
   const updateCursorPosition = useCallback(() => {
     const parentEl = layersRef.current;
     if (!parentEl) return;
 
-    // Use targetIdxReached to find the current ghost character element
     const charIdx = targetIdxReached >= content.length ? content.length - 1 : targetIdxReached;
     const charEl = document.getElementById(`char-ghost-${charIdx}`);
     
@@ -279,12 +269,11 @@ const TypingAreaV2: React.FC<Props> = ({
       let top = rect.top - parentRect.top;
       let left = isAtEnd ? rect.right - parentRect.left : rect.left - parentRect.left;
       
-      // Explicit handling for the very start to ensure alignment
+      // Strict alignment for the first character
       if (targetIdxReached === 0) {
         left = rect.left - parentRect.left;
       }
       
-      // Precision handling for newlines
       if (!isAtEnd && content[targetIdxReached] === '\n') {
           const nextEl = document.getElementById(`char-ghost-${targetIdxReached + 1}`);
           if (nextEl) {
@@ -297,7 +286,6 @@ const TypingAreaV2: React.FC<Props> = ({
       setCursorPos({ top, left, height: rect.height });
       
       if (!isReady) {
-          // Double frame request to ensure layout is definitely painted before showing the cursor
           requestAnimationFrame(() => {
             requestAnimationFrame(() => setIsReady(true));
           });
@@ -377,17 +365,15 @@ const TypingAreaV2: React.FC<Props> = ({
 
   useEffect(() => {
     if (isFinishedRef.current) return;
-    let mistakesCount = 0;
-    targetToUserMap.forEach(d => { if (d.isMistake) mistakesCount++; });
-    const currentStats = calculateStats(mistakesCount, userInput.replace(/\n/g, '').length);
+    const currentStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
     if (currentStats) onStatsUpdate(currentStats);
     
     if (targetIdxReached >= content.length && isLastCharComplete && userInput.length > 0 && !isComposing) {
       isFinishedRef.current = true;
-      const finalStats = calculateStats(mistakesCount, userInput.replace(/\n/g, '').length, Date.now());
+      const finalStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length, Date.now());
       if (finalStats) onComplete(finalStats);
     }
-  }, [targetIdxReached, isLastCharComplete, isComposing, calculateStats, onStatsUpdate, onComplete, content.length, userInput, targetToUserMap]);
+  }, [targetIdxReached, isLastCharComplete, isComposing, calculateStats, onStatsUpdate, onComplete, content.length, userInput, mistakes.size]);
 
   return (
     <div className="h-full min-h-0 flex flex-col relative" onClick={() => !isPaused && hiddenInputRef.current?.focus()}>
@@ -399,7 +385,6 @@ const TypingAreaV2: React.FC<Props> = ({
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-4">
         <div className="relative min-h-full pb-[70vh]">
           <div ref={layersRef} className="relative w-full text-2xl leading-relaxed tracking-tight whitespace-pre-wrap break-keep text-left select-none outline-none font-medium">
-            {/* Intelligent Cursor with instant opacity toggle and smooth motion */}
             <div className={`absolute w-[2px] bg-black/50 z-20 ${isReady ? 'transition-[left,top] duration-[180ms] ease-out opacity-100' : 'opacity-0'}`} style={{ top: `${cursorPos.top}px`, left: `${cursorPos.left}px`, height: `${cursorPos.height || 32}px`, visibility: (isFinishedRef.current || !isReady || isPaused) ? 'hidden' : 'visible' }} />
             {preCalculatedLines.map(({ line, lineOffset }, lIdx) => (
               <MemoizedLine 
