@@ -36,7 +36,6 @@ export const useAutoScroll = ({
 
     const startTime = performance.now();
     // 거리 비례 시간 계산 (최소 150ms ~ 최대 450ms)
-    // 모바일에서는 조금 더 부드러운 느낌을 위해 지속 시간을 약간 조정
     const duration = isMobile 
       ? Math.min(450, Math.max(200, 250 + Math.abs(distance) / 2))
       : Math.min(400, Math.max(150, 200 + Math.abs(distance) / 3));
@@ -71,14 +70,13 @@ export const useAutoScroll = ({
     let nextScrollTop = currentScroll;
 
     if (isMobile) {
-      // 모바일: 현재 타이핑 라인을 화면의 약 40~45% 지점에 위치시킴
-      // 키보드가 올라오면 가용 높이가 줄어드는데, 그 상태에서 중앙에 가깝게 유지
-      const centerTarget = targetTop - (viewportHeight * 0.42);
+      // 모바일: 현재 타이핑 라인을 화면의 상단 약 25% 지점에 위치시킴
+      // 42%에서 25%로 조정하여 키보드에 가려지는 현상을 방지하고 더 일찍 스크롤되도록 함
+      const centerTarget = targetTop - (viewportHeight * 0.25);
       nextScrollTop = centerTarget;
       
-      // 모바일에서는 미세한 움직임에도 계속 반응하면 어지러울 수 있으므로
-      // 어느 정도 차이가 날 때만 스무스 스크롤을 실행
-      if (Math.abs(nextScrollTop - currentScroll) > 10) {
+      // 반응성 향상을 위해 임계값을 10에서 5로 낮춤
+      if (Math.abs(nextScrollTop - currentScroll) > 5) {
         performSmoothScroll(Math.max(0, nextScrollTop));
       }
     } else {
