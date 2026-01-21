@@ -37,7 +37,10 @@ const keyboard2 = new SoundPool('./sounds/Keyboard2.mp3', 12, 0.7);
 const keyboard3 = new SoundPool('./sounds/Keyboard3.mp3', 12, 0.7);
 const keyboard4 = new SoundPool('./sounds/Keyboard4.mp3', 12, 0.7);
 
-const enterSound = new SoundPool('./sounds/Enter.mp3', 8, 1.0);
+// 엔터 사운드 이원화
+const enterSound1 = new SoundPool('./sounds/Enter1.mp3', 6, 1.0);
+const enterSound2 = new SoundPool('./sounds/Enter2.mp3', 6, 1.0);
+
 const spaceSound = new SoundPool('./sounds/Space.mp3', 8, 1.0);
 const deleteSound = new SoundPool('./sounds/Delete.mp3', 8, 1.0);
 const completeSound = new SoundPool('./sounds/Complete.mp3', 1, 1.0);
@@ -49,9 +52,13 @@ const K3_REGEX = /^[M-R]$/i;
 const K4_REGEX = /^[S-Z]$/i;
 
 export const playTypingSound = (char: string) => {
-  // Enter, Space, Backspace는 모바일/PC 상관없이 재생
+  // Enter 입력 시 두 가지 사운드 중 랜덤 재생
   if (char === '\n' || char === 'Enter') {
-    enterSound.play(false);
+    if (Math.random() > 0.5) {
+      enterSound1.play(false);
+    } else {
+      enterSound2.play(false);
+    }
     return;
   }
   
