@@ -192,7 +192,7 @@ const TypingAreaV2: React.FC<Props> = ({
             if (content[targetIdx] === ' ' || content[targetIdx] === '\n') {
                 targetIdx++;
                 while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
-                skipCurrentPunct(); // Ensure we skip start-of-line punct after skip
+                skipCurrentPunct();
                 if (isLastIndex) isLastCharComplete = true;
                 continue;
             } else {
@@ -275,53 +275,50 @@ const TypingAreaV2: React.FC<Props> = ({
     const parentEl = layersRef.current;
     if (!parentEl) return;
 
-    let charIdx = targetIdxReached >= content.length ? content.length - 1 : targetIdxReached;
+    // Use current waiting index
+    const idx = targetIdxReached;
+    const isAtEnd = idx >= content.length;
     
-    // If the current target index points to a newline or empty space, 
-    // we need to find the first real visible character element to snap the cursor correctly.
-    if (content[charIdx] === '\n') {
-      let lookAhead = charIdx + 1;
-      while (lookAhead < content.length && content[lookAhead] === '\n') {
-        lookAhead++;
-      }
-      if (lookAhead < content.length) {
-        charIdx = lookAhead;
-      }
+    let measureIdx = idx;
+    let useRight = false;
+
+    // CORE CHANGE: If waiting at a newline, stick to the end of the current line (prev char's right).
+    // This prevents the cursor from jumping to the next line before Space/Enter is pressed.
+    if (!isAtEnd && content[idx] === '\n') {
+      measureIdx = Math.max(0, idx - 1);
+      useRight = true;
+    } else if (isAtEnd) {
+      measureIdx = content.length - 1;
+      useRight = true;
     }
 
-    const charEl = document.getElementById(`char-ghost-${charIdx}`);
+    // Try finding the primary character element
+    let charEl = document.getElementById(`char-ghost-${measureIdx}`);
     
+    // Fallback: If the element doesn't exist (e.g., waiting at start of text or middle of newlines),
+    // find the first available visible character element after the current index.
+    if (!charEl && !isAtEnd) {
+      let fallbackIdx = idx;
+      while (fallbackIdx < content.length && !document.getElementById(`char-ghost-${fallbackIdx}`)) {
+        fallbackIdx++;
+      }
+      charEl = document.getElementById(`char-ghost-${fallbackIdx}`);
+      useRight = false;
+    }
+
     if (charEl) {
       const rect = charEl.getBoundingClientRect();
       const parentRect = parentEl.getBoundingClientRect();
-      const isAtEnd = targetIdxReached >= content.length;
       
-      let top = rect.top - parentRect.top;
-      let left = isAtEnd ? rect.right - parentRect.left : rect.left - parentRect.left;
-      
-      // If we are exactly at the start of a line (potentially after newlines jump)
-      // Ensure we use the left side of the character.
-      if (charIdx === targetIdxReached && !isAtEnd) {
-          left = rect.left - parentRect.left;
-      }
-
-      // Special case: if we jumped to a position that is exactly a newline in the content, 
-      // but targetIdxReached is now at the start of the next line's element.
-      if (targetIdxReached > 0 && content[targetIdxReached-1] === '\n') {
-          left = rect.left - parentRect.left;
-          top = rect.top - parentRect.top;
-      }
-
-      if (targetIdxReached === 0) {
-        left = rect.left - parentRect.left;
-      }
+      const top = rect.top - parentRect.top;
+      const left = useRight ? (rect.right - parentRect.left) : (rect.left - parentRect.left);
       
       setCursorPos({ top, left, height: rect.height });
       
       if (!isReady) {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => setIsReady(true));
-          });
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => setIsReady(true));
+        });
       }
     }
   }, [targetIdxReached, content, isReady]);
@@ -371,6 +368,7 @@ const TypingAreaV2: React.FC<Props> = ({
     
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
+      // Check if we are at a newline boundary
       while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
       
       if (ahead < content.length && content[ahead] === '\n') {
@@ -418,7 +416,16 @@ const TypingAreaV2: React.FC<Props> = ({
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-4">
         <div className="relative min-h-full pb-[70vh]">
           <div ref={layersRef} className="relative w-full text-2xl leading-relaxed tracking-tight whitespace-pre-wrap break-keep text-left select-none outline-none font-medium">
-            <div className={`absolute w-[2px] bg-black/50 z-20 ${isReady ? 'transition-[left,top] duration-[180ms] ease-out opacity-100' : 'opacity-0'}`} style={{ top: `${cursorPos.top}px`, left: `${cursorPos.left}px`, height: `${cursorPos.height || 32}px`, visibility: (isFinishedRef.current || !isReady || isPaused) ? 'hidden' : 'visible' }} />
+            <div 
+              className={`absolute w-[2px] bg-black/60 z-20 
+                ${isReady ? 'transition-[left,top] duration-[250ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] opacity-100' : 'opacity-0'}`} 
+              style={{ 
+                top: `${cursorPos.top}px`, 
+                left: `${cursorPos.left}px`, 
+                height: `${cursorPos.height || 32}px`, 
+                visibility: (isFinishedRef.current || !isReady || isPaused) ? 'hidden' : 'visible' 
+              }} 
+            />
             {preCalculatedLines.map(({ line, lineOffset }, lIdx) => (
               <MemoizedLine 
                 key={lIdx} 
