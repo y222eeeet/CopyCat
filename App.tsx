@@ -76,8 +76,10 @@ const getNextSessionFromPool = (lang: Language, currentContent?: string): Typing
     }
   }
 
-  if (pool.length === 0) {
+  // 풀이 비었거나 문제가 있을 경우 새로 생성
+  if (!Array.isArray(pool) || pool.length === 0) {
     pool = Array.from({ length: sessions.length }, (_, i) => i);
+    // Fisher-Yates shuffle
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -86,10 +88,14 @@ const getNextSessionFromPool = (lang: Language, currentContent?: string): Typing
 
   let nextIndex = pool.pop() ?? 0;
   
+  // 현재 문장과 중복되는 경우 처리
   if (sessions[nextIndex]?.content === currentContent && pool.length > 0) {
     const backupIndex = nextIndex;
     nextIndex = pool.pop() ?? 0;
     pool.push(backupIndex); 
+  } else if (sessions[nextIndex]?.content === currentContent && pool.length === 0) {
+    // 풀의 마지막 하나가 현재와 같으면 그냥 0번을 주거나 다른걸 찾음 (최소 2개 이상 세션 가정)
+    nextIndex = (nextIndex + 1) % sessions.length;
   }
 
   localStorage.setItem(poolKey, JSON.stringify(pool));
@@ -167,7 +173,7 @@ const App: React.FC = () => {
   }, [isDarkMode]);
 
   const saveSessionState = useCallback((history: string[], ks: number, accTime: number) => {
-    if (!settings.rememberProgress) return;
+    if (!settings.rememberProgress || isComplete) return;
     const data: SavedSession = {
       session,
       userInputHistory: history,
@@ -176,7 +182,7 @@ const App: React.FC = () => {
       lastUpdated: Date.now()
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [session, settings.rememberProgress]);
+  }, [session, settings.rememberProgress, isComplete]);
 
   const handleUploadClick = () => {
     fileInputRef.current?.click();
@@ -243,7 +249,10 @@ const App: React.FC = () => {
   };
 
   const handleResetForNewSession = (newSession: TypingSession) => {
-    setSession(newSession);
+    // 1. 진행 상태 삭제
+    localStorage.removeItem(STORAGE_KEY);
+    
+    // 2. 모든 상태 초기화
     setInitialData({ history: [], keystrokes: 0, time: 0 });
     setStats({
       speed: 0,
@@ -252,10 +261,12 @@ const App: React.FC = () => {
       totalCount: newSession.content.replace(/\n/g, '').length,
       elapsedTime: 0
     });
+    
+    // 3. 세션 업데이트 및 UI 초기화
+    setSession(newSession);
     setIsComplete(false);
     setIsPaused(false);
     setResetKey(prev => prev + 1);
-    localStorage.removeItem(STORAGE_KEY);
   };
 
   const handleReset = useCallback(() => {
@@ -263,9 +274,12 @@ const App: React.FC = () => {
   }, [session]);
 
   const handleNextSentence = useCallback(() => {
+    // 팝업이 뜬 상태에서만 다음 문장으로 진행 (중복 클릭 방지)
+    if (!isComplete) return;
+    
     const nextSession = getNextSessionFromPool(session.language, session.content);
     handleResetForNewSession(nextSession);
-  }, [session.language, session.content]);
+  }, [session.language, session.content, isComplete]);
 
   const handleClosePopup = useCallback(() => {
     setIsComplete(false);

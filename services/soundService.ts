@@ -29,6 +29,9 @@ class SoundPool {
   }
 }
 
+// 환경 감지 로직 추가
+const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 const keyboard1 = new SoundPool('./sounds/Keyboard1.mp3', 12, 0.7);
 const keyboard2 = new SoundPool('./sounds/Keyboard2.mp3', 12, 0.7);
 const keyboard3 = new SoundPool('./sounds/Keyboard3.mp3', 12, 0.7);
@@ -38,7 +41,7 @@ const enterSound = new SoundPool('./sounds/Enter.mp3', 8, 1.0);
 const spaceSound = new SoundPool('./sounds/Space.mp3', 8, 1.0);
 const deleteSound = new SoundPool('./sounds/Delete.mp3', 8, 1.0);
 const completeSound = new SoundPool('./sounds/Complete.mp3', 1, 1.0);
-const errorSound = new SoundPool('./sounds/Error.mp3', 5, 0.5); // Updated volume to 0.5
+const errorSound = new SoundPool('./sounds/Error.mp3', 5, 0.5); 
 
 const K1_REGEX = /^[A-F0-9]$/i;
 const K2_REGEX = /^[G-L]$/i;
@@ -46,6 +49,7 @@ const K3_REGEX = /^[M-R]$/i;
 const K4_REGEX = /^[S-Z]$/i;
 
 export const playTypingSound = (char: string) => {
+  // Enter, Space, Backspace는 모바일/PC 상관없이 재생
   if (char === '\n' || char === 'Enter') {
     enterSound.play(false);
     return;
@@ -61,6 +65,10 @@ export const playTypingSound = (char: string) => {
     return;
   }
 
+  // 모바일 환경일 경우 일반 키보드 클릭음(K1~K4)은 재생하지 않고 리턴
+  if (isMobile) return;
+
+  // PC 환경에서만 실행되는 일반 키 사운드 로직
   const cleanChar = char.replace('Key', '').replace('Digit', '');
   
   if (K1_REGEX.test(cleanChar)) keyboard1.play();
@@ -71,9 +79,11 @@ export const playTypingSound = (char: string) => {
 };
 
 export const playCompletionSound = () => {
+  // 완료 소리는 모든 환경에서 재생
   completeSound.play(false);
 };
 
 export const playErrorSound = () => {
+  // 오타 소리는 모든 환경에서 재생
   errorSound.play(false);
 };

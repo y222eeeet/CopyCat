@@ -14,6 +14,9 @@ const getCachedDecomposition = (char: string) => {
   return res;
 };
 
+// 환경 감지
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 interface UserCharData {
   char: string;
   isMistake: boolean;
@@ -99,6 +102,7 @@ const TypingAreaV2: React.FC<Props> = ({
   const accumulatedTimeRef = useRef<number>(initialAccumulatedTime);
   const isJumpingRef = useRef(false); 
   const isFinishedRef = useRef(false);
+  const statsThrottleRef = useRef<boolean>(false);
   
   const content = session.content;
   const totalCount = useMemo(() => {
@@ -274,9 +278,7 @@ const TypingAreaV2: React.FC<Props> = ({
 
   const prevMistakeCount = useRef<number>(0);
   useEffect(() => {
-    // If already finished, don't trigger error sounds for the last-second state updates
     if (isFinishedRef.current) return;
-    
     if (mistakes.size > prevMistakeCount.current) {
       playErrorSound();
     }
@@ -363,15 +365,40 @@ const TypingAreaV2: React.FC<Props> = ({
     return { speed: Math.min(speed, 2500), accuracy, typedCount: finalTypedCount, totalCount, elapsedTime: elapsedSeconds };
   }, [session.language, totalCount, targetToUserMap, content, targetIdxReached]);
 
+  // Mobile 최적화 handleInput
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isFinishedRef.current || isPaused || isJumpingRef.current) return;
-    setUserInput(e.target.value);
+    const value = e.target.value;
+    setUserInput(value);
+
+    // 모바일에서는 composition 종료 시에만 소리를 내므로, input에서는 공백/줄바꿈만 처리
+    if (isMobile && !isComposing) {
+      const lastChar = value[value.length - 1];
+      if (lastChar === ' ') playTypingSound(' ');
+      else if (lastChar === '\n') playTypingSound('Enter');
+      else if (value.length < userInput.length) playTypingSound('Backspace');
+    }
   };
 
+  // PC 로직: onKeyDown에서 대부분의 사운드와 타수 계산
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isFinishedRef.current || isPaused) return;
     if (startTimeRef.current === null) startTimeRef.current = Date.now();
     
+    // 모바일에서는 Enter/Backspace 외의 일반 키 소리 제어
+    if (isMobile) {
+      if (e.key === 'Enter') {
+        const ahead = targetIdxReached;
+        if (content[ahead] === '\n' || content[ahead-1] === '\n') {
+          // Newline skip logic
+        } else {
+          e.preventDefault();
+        }
+      }
+      return;
+    }
+
+    // PC 기존 로직
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
       while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
@@ -394,8 +421,24 @@ const TypingAreaV2: React.FC<Props> = ({
       else if (e.code.startsWith('Key') || e.code.startsWith('Digit')) playTypingSound(e.code);
       else if (e.key.length === 1) playTypingSound(e.key);
     }
+    
     if (!e.nativeEvent.isComposing && !['Control', 'Alt', 'Shift', 'Meta', 'CapsLock', 'Tab', ' ', 'Enter'].includes(e.key)) {
       setKeystrokes(prev => prev + 1);
+    }
+  };
+
+  const handleCompositionStart = () => setIsComposing(true);
+  
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    setIsComposing(false);
+    if (isMobile) {
+      // 모바일: 글자 조합 완료 시 사운드 1회 재생 및 타수 업데이트
+      playTypingSound('KeyA'); // 일반 키 사운드 그룹 중 하나 사용
+      setKeystrokes(prev => prev + 1);
+      
+      // 즉각적인 통계 업데이트 강제
+      const stats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
+      if (stats) onStatsUpdate(stats);
     }
   };
 
@@ -408,7 +451,6 @@ const TypingAreaV2: React.FC<Props> = ({
       isFinishedRef.current = true;
       const finalStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length, Date.now());
       if (finalStats) {
-        // Reduced from 300ms to 200ms for a tighter, more responsive feel
         setTimeout(() => {
           onComplete(finalStats);
         }, 200);
@@ -416,8 +458,11 @@ const TypingAreaV2: React.FC<Props> = ({
       return;
     }
 
-    const currentStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
-    if (currentStats) onStatsUpdate(currentStats);
+    // 모바일이 아닐 때만 매번 업데이트, 모바일은 compositionEnd에서 처리 (성능 최적화)
+    if (!isMobile || !isComposing) {
+        const currentStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
+        if (currentStats) onStatsUpdate(currentStats);
+    }
   }, [targetIdxReached, isLastCharComplete, isComposing, calculateStats, onStatsUpdate, onComplete, content.length, userInput, mistakes.size]);
 
   return (
@@ -429,7 +474,6 @@ const TypingAreaV2: React.FC<Props> = ({
       )}
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-4">
         <div className="relative min-h-full pb-[70vh]">
-          {/* Main Container: font-light for default typing, line height updated to 40px */}
           <div ref={layersRef} className="relative w-full text-[25px] leading-[40px] tracking-[-0.02em] whitespace-pre-wrap break-keep text-left select-none outline-none font-light">
             <div 
               className={`absolute w-[2px] ${isDarkMode ? 'bg-white/60' : 'bg-black/60'} z-20 
@@ -456,7 +500,20 @@ const TypingAreaV2: React.FC<Props> = ({
           </div>
         </div>
       </div>
-      <textarea ref={hiddenInputRef} className="fixed opacity-0 pointer-events-none" value={userInput} onChange={handleInput} onKeyDown={handleKeyDown} onCompositionStart={() => setIsComposing(true)} onCompositionEnd={() => setIsComposing(false)} onBlur={() => setIsComposing(false)} disabled={isPaused} autoFocus spellCheck={false} autoComplete="off" />
+      <textarea 
+        ref={hiddenInputRef} 
+        className="fixed opacity-0 pointer-events-none" 
+        value={userInput} 
+        onChange={handleInput} 
+        onKeyDown={handleKeyDown} 
+        onCompositionStart={handleCompositionStart} 
+        onCompositionEnd={handleCompositionEnd} 
+        onBlur={() => setIsComposing(false)} 
+        disabled={isPaused} 
+        autoFocus 
+        spellCheck={false} 
+        autoComplete="off" 
+      />
     </div>
   );
 };
