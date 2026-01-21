@@ -1,6 +1,7 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Stats, Language } from '../types';
+import { playCompletionSound } from '../services/soundService';
 
 interface Props {
   stats: Stats;
@@ -10,6 +11,21 @@ interface Props {
 }
 
 const CompletionPopup: React.FC<Props> = ({ stats, language, onNext, onClose }) => {
+  useEffect(() => {
+    // Play immediately without any delay
+    playCompletionSound();
+  }, []);
+
+  const handleNext = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onNext();
+  };
+
+  const handleClose = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl animate-in fade-in zoom-in duration-300">
@@ -48,13 +64,13 @@ const CompletionPopup: React.FC<Props> = ({ stats, language, onNext, onClose }) 
 
         <div className="flex flex-col gap-3">
           <button 
-            onClick={onNext}
+            onClick={handleNext}
             className="w-full py-4 bg-black text-white rounded-2xl font-bold hover:bg-gray-800 transition-all active:scale-[0.98]"
           >
             다음 문장으로
           </button>
           <button 
-            onClick={onClose}
+            onClick={handleClose}
             className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all active:scale-[0.98]"
           >
             돌아가기

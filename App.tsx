@@ -6,7 +6,6 @@ import CompletionPopup from './components/CompletionPopup';
 import { TypingSession, Stats, Language, Settings, SavedSession } from './types';
 import { detectLanguage } from './services/hangulUtils';
 
-// Mammoth is loaded globally in index.html
 declare const mammoth: any;
 
 const STORAGE_KEY = 'typing_works_session_v2';
@@ -29,21 +28,38 @@ const DEFAULT_SESSIONS_EN: TypingSession[] = [
     filename: 'Rocky Balboa (2006)',
     content: "It’s not about how hard you hit.\nIt’s about how hard you can get hit\nand keep moving forward.",
     language: Language.ENGLISH
+  },
+  {
+    filename: 'The Great Gatsby',
+    content: "In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since. \"Whenever you feel like criticizing anyone,\" he told me, \"just remember that all the people in this world haven't had the advantages that you've had.\"",
+    language: Language.ENGLISH
   }
-  // ... (Other default sessions omitted for brevity, but kept in actual implementation)
 ];
 
-// Fallback pool in case default sessions are not fully defined in the prompt context
 const DEFAULT_SESSIONS_KO: TypingSession[] = [
   {
     filename: '지지 않는 꽃 - 나태주',
     content: "하루나 이틀 꽃은\n피었다 지지만\n\n마음속 숨긴 꽃은\n좀 더 오래간다\n\n글이 된 꽃은\n더 오래 지지 않는다",
     language: Language.KOREAN
+  },
+  {
+    filename: '서시 - 윤동주',
+    content: "죽는 날까지 하늘을 우러러\n한 점 부끄럼이 없기를,\n잎새에 이는 바람에도\n나는 괴로워했다.\n별을 노래하는 마음으로\n모든 죽어가는 것을 사랑해야지\n그리고 나한테 주어진 길을\n걸어가야겠다.",
+    language: Language.KOREAN
+  },
+  {
+    filename: '어린 왕자 중에서',
+    content: "세상에서 가장 어려운 일은 사람의 마음을 얻는 일이란다.\n각각의 얼굴만큼 각양각색의 마음이 있고,\n바람처럼 순식간에 변해버리는 것이 사람의 마음이기 때문이지.",
+    language: Language.KOREAN
+  },
+  {
+    filename: '삶이 그대를 속일지라도 - 푸시킨',
+    content: "삶이 그대를 속일지라도\n슬퍼하거나 노여워하지 말라\n우울한 날들을 견디면\n믿으라, 기쁨의 날이 오리니.",
+    language: Language.KOREAN
   }
-  // ... (Other default sessions omitted for brevity)
 ];
 
-const getNextSessionFromPool = (lang: Language): TypingSession => {
+const getNextSessionFromPool = (lang: Language, currentContent?: string): TypingSession => {
   const isKO = lang === Language.KOREAN;
   const poolKey = isKO ? SHUFFLE_KEY_KO : SHUFFLE_KEY_EN;
   const sessions = isKO ? DEFAULT_SESSIONS_KO : DEFAULT_SESSIONS_EN;
@@ -59,6 +75,7 @@ const getNextSessionFromPool = (lang: Language): TypingSession => {
     }
   }
 
+  // If pool is empty or corrupted, refill and shuffle
   if (pool.length === 0) {
     pool = Array.from({ length: sessions.length }, (_, i) => i);
     for (let i = pool.length - 1; i > 0; i--) {
@@ -67,7 +84,15 @@ const getNextSessionFromPool = (lang: Language): TypingSession => {
     }
   }
 
-  const nextIndex = pool.pop() ?? 0;
+  let nextIndex = pool.pop() ?? 0;
+  
+  // Try to avoid showing the exact same content consecutively if there are options
+  if (sessions[nextIndex]?.content === currentContent && pool.length > 0) {
+    const backupIndex = nextIndex;
+    nextIndex = pool.pop() ?? 0;
+    pool.push(backupIndex); // Put the old one back to be used later
+  }
+
   localStorage.setItem(poolKey, JSON.stringify(pool));
   return sessions[nextIndex] || sessions[0];
 };
@@ -92,10 +117,8 @@ const App: React.FC = () => {
         const parsed: SavedSession = JSON.parse(saved);
         return parsed.session;
       }
-    } catch (e) {
-      console.error("Failed to load saved session", e);
-    }
-    return getNextSessionFromPool(Language.ENGLISH);
+    } catch (e) {}
+    return getNextSessionFromPool(Language.KOREAN);
   });
 
   const [initialData, setInitialData] = useState<{history: string[], keystrokes: number, time: number}>(() => {
@@ -144,7 +167,6 @@ const App: React.FC = () => {
   const handleToggleLanguage = () => {
     const nextLang = session.language === Language.ENGLISH ? Language.KOREAN : Language.ENGLISH;
     const nextSession = getNextSessionFromPool(nextLang);
-    setSession(nextSession);
     handleResetForNewSession(nextSession);
   };
 
@@ -156,14 +178,12 @@ const App: React.FC = () => {
     let content = '';
     
     try {
+      const mammothLib = (window as any).mammoth;
       if (originalFilename.toLowerCase().endsWith('.docx')) {
-        // Vercel/Production ESM environment safety check
-        const mammothLib = (window as any).mammoth;
         if (!mammothLib) {
-          alert("문서 변환 라이브러리(Mammoth)를 로드하는 중입니다. 잠시 후 다시 시도해주세요.");
+          alert("문서 변환 라이브러리를 로드 중입니다.");
           return;
         }
-
         const arrayBuffer = await file.arrayBuffer();
         const result = await mammothLib.extractRawText({ arrayBuffer });
         content = result.value || '';
@@ -171,7 +191,7 @@ const App: React.FC = () => {
         content = await file.text();
       }
       
-      if (!content || content.trim().length === 0) {
+      if (!content.trim()) {
         alert("파일 내용이 비어있습니다.");
         return;
       }
@@ -195,18 +215,15 @@ const App: React.FC = () => {
         language: detectLanguage(normalizedContent) as Language,
       };
 
-      setSession(newSession);
       handleResetForNewSession(newSession);
-      
-      // Reset input value to allow re-uploading same file if needed
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
-      console.error("File upload error:", err);
-      alert("파일을 읽는 중 오류가 발생했습니다. 지원되는 형식(.txt, .docx)인지 확인해주세요.");
+      alert("파일 로드 중 오류 발생.");
     }
   };
 
   const handleResetForNewSession = (newSession: TypingSession) => {
+    setSession(newSession);
     setInitialData({ history: [], keystrokes: 0, time: 0 });
     setStats({
       speed: 0,
@@ -222,34 +239,20 @@ const App: React.FC = () => {
   };
 
   const handleReset = useCallback(() => {
-    setStats({
-      speed: 0,
-      accuracy: 100,
-      typedCount: 0,
-      totalCount: session.content.replace(/\n/g, '').length,
-      elapsedTime: 0
-    });
-    setInitialData({ history: [], keystrokes: 0, time: 0 });
-    setIsComplete(false);
-    setIsPaused(false);
-    setResetKey(prev => prev + 1);
-    localStorage.removeItem(STORAGE_KEY);
-  }, [session.content]);
+    handleResetForNewSession(session);
+  }, [session]);
 
   const handleNextSentence = useCallback(() => {
-    const nextSession = getNextSessionFromPool(session.language);
-    setSession(nextSession);
+    const nextSession = getNextSessionFromPool(session.language, session.content);
     handleResetForNewSession(nextSession);
-  }, [session.language]);
+  }, [session.language, session.content]);
 
   const handleClosePopup = useCallback(() => {
     setIsComplete(false);
   }, []);
 
   const handleStatsUpdate = (newStats: Stats) => {
-    if (!isComplete && !isPaused) {
-      setStats(newStats);
-    }
+    if (!isComplete && !isPaused) setStats(newStats);
   };
 
   const handleComplete = (finalStats: Stats) => {
@@ -258,19 +261,11 @@ const App: React.FC = () => {
     localStorage.removeItem(STORAGE_KEY);
   };
 
-  const togglePause = () => {
-    setIsPaused(prev => !prev);
-  };
+  const togglePause = () => setIsPaused(prev => !prev);
 
   return (
     <div className="flex flex-col h-screen bg-white overflow-hidden text-[#333]">
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleFileChange} 
-        className="hidden" 
-        accept=".txt,.docx"
-      />
+      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".txt,.docx" />
 
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm px-4">
@@ -278,19 +273,11 @@ const App: React.FC = () => {
             <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6">Settings</h3>
             <div className="flex items-center justify-between mb-8">
               <span className="text-sm font-medium text-gray-700">Remember progress</span>
-              <button 
-                onClick={() => setSettings(s => ({ ...s, rememberProgress: !s.rememberProgress }))}
-                className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors focus:outline-none ${settings.rememberProgress ? 'bg-black' : 'bg-gray-200'}`}
-              >
+              <button onClick={() => setSettings(s => ({ ...s, rememberProgress: !s.rememberProgress }))} className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.rememberProgress ? 'bg-black' : 'bg-gray-200'}`}>
                 <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${settings.rememberProgress ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
-            <button 
-              onClick={() => setShowSettings(false)}
-              className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
-            >
-              Close
-            </button>
+            <button onClick={() => setShowSettings(false)} className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200">Close</button>
           </div>
         </div>
       )}
@@ -298,57 +285,24 @@ const App: React.FC = () => {
       <main className="flex-1 min-h-0 flex flex-col max-w-6xl mx-auto w-full px-6 pt-6">
         <div className="flex flex-col gap-6 mb-4">
           <div className="flex justify-end items-center gap-4">
-            <button 
-              onClick={handleUploadClick}
-              className="text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-black transition-colors"
-            >
-              Upload
-            </button>
-            <button 
-              onClick={handleReset}
-              className="text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-black transition-colors"
-            >
-              Reset
-            </button>
+            <button onClick={handleUploadClick} className="text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-black">Upload</button>
+            <button onClick={handleReset} className="text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-black">Reset</button>
             <div className="h-3 w-[1px] bg-gray-200"></div>
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="text-gray-300 hover:text-gray-500 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-                <circle cx="12" cy="12" r="3"/>
-              </svg>
+            <button onClick={() => setShowSettings(true)} className="text-gray-300 hover:text-gray-500">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
-            <button 
-              onClick={handleToggleLanguage}
-              className="text-gray-400 hover:text-black transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="2" y1="12" x2="22" y2="12" />
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-              </svg>
+            <button onClick={handleToggleLanguage} className="text-gray-400 hover:text-black">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
             </button>
           </div>
-
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-bold text-gray-800 tracking-tight truncate mr-4">{session.filename}</h1>
-            <button 
-              onClick={togglePause}
-              className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all text-[11px] font-bold uppercase tracking-widest ${
-                isPaused 
-                  ? 'bg-black text-white' 
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black'
-              }`}
-            >
+            <button onClick={togglePause} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all text-[11px] font-bold uppercase tracking-widest ${isPaused ? 'bg-black text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black'}`}>
               {isPaused ? "Resume" : "Pause"}
             </button>
           </div>
         </div>
-
         <StatsBar stats={stats} language={session.language} isPaused={isPaused} />
-        
         <div className="mt-8 flex-1 min-h-0 overflow-hidden">
           <TypingAreaV2 
             key={`${resetKey}-${session.filename}`}
@@ -363,15 +317,7 @@ const App: React.FC = () => {
           />
         </div>
       </main>
-
-      {isComplete && (
-        <CompletionPopup 
-          stats={stats} 
-          language={session.language} 
-          onNext={handleNextSentence}
-          onClose={handleClosePopup}
-        />
-      )}
+      {isComplete && <CompletionPopup stats={stats} language={session.language} onNext={handleNextSentence} onClose={handleClosePopup} />}
     </div>
   );
 };
