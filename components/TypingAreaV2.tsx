@@ -5,6 +5,69 @@ import { isJamoPrefix, decomposeHangul } from '../services/hangulUtils';
 import { useAutoScroll } from '../hooks/useAutoScroll';
 import { playTypingSound, playErrorSound } from '../services/soundService';
 
+const jamoCache = new Map<string, string[]>();
+const getCachedDecomposition = (char: string) => {
+  if (!char) return [];
+  if (jamoCache.has(char)) return jamoCache.get(char)!;
+  const res = decomposeHangul(char);
+  jamoCache.set(char, res);
+  return res;
+};
+
+// Character data interface for mapping
+interface UserCharData {
+  char: string;
+  isMistake: boolean;
+}
+
+const MemoizedLine = React.memo(({ 
+  line, 
+  lineOffset, 
+  targetToUserMap,
+  activatedPunct, 
+  composingIdx, 
+  isComposing 
+}: any) => {
+  return (
+    <div className="min-h-[1.6em] relative">
+      {/* Ghost layer (Target Text / Background) */}
+      <div className="absolute top-0 left-0 w-full pointer-events-none">
+        {line.split('').map((char: string, cIdx: number) => {
+          const absIdx = lineOffset + cIdx;
+          const isBeingComposed = absIdx === composingIdx && isComposing;
+          
+          let color = '#E5E7EB'; // Default gray for untyped
+          
+          if (isBeingComposed) {
+            color = 'transparent';
+          } else if (targetToUserMap.has(absIdx)) {
+            // Hide background where user typed to prevent overlap
+            color = 'transparent';
+          } else if (activatedPunct.has(absIdx)) {
+            // Auto-activated punctuation
+            color = '#333333';
+          }
+          
+          return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }}>{char}</span>;
+        })}
+      </div>
+      {/* User Input layer */}
+      <div className="relative w-full z-10 pointer-events-none">
+        {line.split('').map((targetChar: string, cIdx: number) => {
+          const absIdx = lineOffset + cIdx;
+          const userData = targetToUserMap.get(absIdx) as UserCharData | undefined;
+          
+          if (userData) {
+            if (PUNCT_SET.includes(userData.char)) return <span key={absIdx} className="invisible">{userData.char}</span>;
+            return <span key={absIdx} className={userData.isMistake ? 'text-red-500' : 'text-black'}>{userData.char}</span>;
+          }
+          return <span key={absIdx} className="invisible">{targetChar}</span>;
+        })}
+      </div>
+    </div>
+  );
+});
+
 interface Props {
   session: TypingSession;
   isPaused: boolean;
@@ -17,16 +80,10 @@ interface Props {
 }
 
 const TypingAreaV2: React.FC<Props> = ({ 
-  session, 
-  isPaused, 
-  initialHistory = [], 
-  initialKeystrokes = 0,
-  initialAccumulatedTime = 0,
-  onStatsUpdate, 
-  onComplete,
-  onPersist
+  session, isPaused, initialHistory = [], initialKeystrokes = 0, initialAccumulatedTime = 0,
+  onStatsUpdate, onComplete, onPersist
 }) => {
-  const [userInputHistory, setUserInputHistory] = useState<string[]>(initialHistory);
+  const [userInput, setUserInput] = useState<string>(initialHistory.join(''));
   const [isComposing, setIsComposing] = useState(false);
   const [keystrokes, setKeystrokes] = useState(initialKeystrokes);
   const [cursorPos, setCursorPos] = useState({ top: 0, left: 0, height: 0 });
@@ -37,29 +94,25 @@ const TypingAreaV2: React.FC<Props> = ({
   const hiddenInputRef = useRef<HTMLTextAreaElement>(null);
   const startTimeRef = useRef<number | null>(null);
   const accumulatedTimeRef = useRef<number>(initialAccumulatedTime);
-  const totalCountRef = useRef(0);
+  const isJumpingRef = useRef(false); 
   const isFinishedRef = useRef(false);
-  const lastHistoryLenRef = useRef(initialHistory.length);
-
-  useEffect(() => {
-    const raw = session.content;
+  
+  const content = session.content;
+  const totalCount = useMemo(() => {
     let count = 0;
-    for (const char of raw) {
-      if (char !== '\n') count++;
-    }
-    totalCountRef.current = count;
-    isFinishedRef.current = false;
-  }, [session.content]);
+    for (let i = 0; i < content.length; i++) if (content[i] !== '\n') count++;
+    return count;
+  }, [content]);
 
   const preCalculatedLines = useMemo(() => {
-    const lines = session.content.split('\n');
+    const lines = content.split('\n');
     let offset = 0;
     return lines.map(line => {
-      const lineData = { line, lineOffset: offset };
+      const data = { line, lineOffset: offset };
       offset += line.length + 1;
-      return lineData;
+      return data;
     });
-  }, [session.content]);
+  }, [content]);
 
   useEffect(() => {
     if (isPaused) {
@@ -67,199 +120,195 @@ const TypingAreaV2: React.FC<Props> = ({
         accumulatedTimeRef.current += (Date.now() - startTimeRef.current);
         startTimeRef.current = null;
       }
-    } else {
-      if (userInputHistory.length > 0 && !isFinishedRef.current && startTimeRef.current === null) {
-        startTimeRef.current = Date.now();
-      }
+    } else if (userInput.length > 0 && !isFinishedRef.current && startTimeRef.current === null) {
+      startTimeRef.current = Date.now();
     }
-  }, [isPaused]);
+  }, [isPaused, userInput.length]);
 
   useEffect(() => {
     if (!isPaused && isReady) hiddenInputRef.current?.focus();
   }, [isPaused, isReady]);
 
   const isBodyChar = useCallback((char: string) => /^[a-zA-Z0-9가-힣]$/.test(char), []);
-  const isDblQuote = useCallback((char: string) => char === '"' || char === '“' || char === '”', []);
-  const isUpperAlpha = useCallback((char: string) => /^[A-Z]$/.test(char), []);
   
   const isSufficientlyCompleted = useCallback((u: string, t: string) => {
     if (session.language !== Language.KOREAN || !u || !t) return true;
     const tCode = t.charCodeAt(0);
     if (tCode < 0xAC00 || tCode > 0xD7A3) return true;
-    const uJamos = decomposeHangul(u);
-    const tJamos = decomposeHangul(t);
+    const uJamos = getCachedDecomposition(u);
+    const tJamos = getCachedDecomposition(t);
     return uJamos.length >= tJamos.length;
   }, [session.language]);
 
-  const checkCorrect = useCallback((input: string, target: string, nextTarget?: string) => {
-    if (!target) return false;
-    const isTargetHangul = target.charCodeAt(0) >= 0xAC00 && target.charCodeAt(0) <= 0xD7A3;
-    if (isTargetHangul || (session.language === Language.KOREAN && /^[ㄱ-ㅎㅏ-ㅣ]$/.test(target))) {
-      return isJamoPrefix(input, target, nextTarget);
-    }
-    if (isUpperAlpha(target)) return input.toLowerCase() === target.toLowerCase();
-    return input === target;
-  }, [session.language, isUpperAlpha]);
-
-  const getCorrectChar = useCallback((input: string, target: string) => {
-    if (isUpperAlpha(target) && input.toLowerCase() === target.toLowerCase()) return target;
-    return input === target ? target : input;
-  }, [isUpperAlpha]);
-
   const alignedState = useMemo(() => {
-    let resultText = "";
     let targetIdx = 0;
-    let lastCharCommitted = true;
     let isLastCharComplete = false;
     let composingTargetIdx = -1;
-    let isLastInputMistake = false;
-    const mistakesSet = new Set<number>();
+    let lastMistakeIdx = -1;
+    const targetToUserMap = new Map<number, UserCharData>();
     const activated = new Set<number>();
-    const content = session.content;
 
-    const tryConsumeEllipsis = () => {
-      if (targetIdx >= content.length) return false;
-      const char = content[targetIdx];
-      const nextThree = content.substring(targetIdx, targetIdx + 3);
-      if (char === '…') { activated.add(targetIdx); resultText += '…'; targetIdx += 1; return true; }
-      if (nextThree === '...') { for (let j = 0; j < 3; j++) activated.add(targetIdx + j); resultText += '...'; targetIdx += 3; return true; }
-      return false;
+    // Skip consecutive punctuation at the current position
+    const skipCurrentPunct = () => {
+        while (targetIdx < content.length && PUNCT_SET.includes(content[targetIdx])) {
+            activated.add(targetIdx);
+            targetIdx++;
+        }
     };
 
-    while (targetIdx < content.length) {
-      if (tryConsumeEllipsis()) continue;
-      if (isDblQuote(content[targetIdx])) { activated.add(targetIdx); resultText += content[targetIdx]; targetIdx++; continue; }
-      break;
-    }
+    // Activate all punctuation in the current word block (up to next space/newline)
+    const activateTrailingPunctInWord = (startFrom: number) => {
+        let search = startFrom;
+        while (search < content.length && content[search] !== ' ' && content[search] !== '\n') {
+            if (PUNCT_SET.includes(content[search])) {
+                activated.add(search);
+            }
+            search++;
+        }
+    };
 
-    for (let i = 0; i < userInputHistory.length; i++) {
-      const userChar = userInputHistory[i];
-      const isLastIndex = i === userInputHistory.length - 1;
+    // Initial activation (at document start)
+    skipCurrentPunct();
+
+    const inputLen = userInput.length;
+    for (let i = 0; i < inputLen; i++) {
+      const userChar = userInput[i];
+      const isLastIndex = i === inputLen - 1;
       const isActuallyComposing = isLastIndex && isComposing;
 
-      // JUMP LOGIC: When a jump character (Space/Enter as delimiter) is in history
-      if (!isActuallyComposing && (userChar === ' ' || userChar === '\n')) {
-        let lookAhead = targetIdx;
-        while (lookAhead < content.length && (PUNCT_SET.includes(content[lookAhead]) || content[lookAhead] === ' ')) {
-          lookAhead++;
-        }
-        if (lookAhead < content.length && content[lookAhead] === '\n') {
-          while (lookAhead < content.length && content[lookAhead] === '\n') {
-            resultText += '\n';
-            lookAhead++;
-          }
-          targetIdx = lookAhead;
-          while (targetIdx < content.length) {
-            if (tryConsumeEllipsis()) continue;
-            if (isDblQuote(content[targetIdx])) { activated.add(targetIdx); resultText += content[targetIdx]; targetIdx++; continue; }
-            break;
-          }
-          lastCharCommitted = true;
-          if (isLastIndex) isLastCharComplete = true;
-          continue; 
-        }
+      // Before processing the next character, skip only punctuation
+      while (targetIdx < content.length && PUNCT_SET.includes(content[targetIdx])) {
+          activated.add(targetIdx);
+          targetIdx++;
       }
 
-      if (isBodyChar(userChar)) {
-        while (targetIdx < content.length) {
-          if (tryConsumeEllipsis()) continue;
-          if (!PUNCT_SET.includes(content[targetIdx])) break;
-          const pChar = content[targetIdx];
-          if (isDblQuote(pChar)) { resultText += pChar; activated.add(targetIdx); targetIdx++; continue; }
-          let bodyCharAhead = false;
-          for (let k = targetIdx + 1; k < content.length; k++) {
-            const next = content[k];
-            if (next === ' ' || next === '\n') break;
-            if (isBodyChar(next)) { bodyCharAhead = true; break; }
-            if (!PUNCT_SET.includes(next)) break;
+      // Handle Jumps (Space or Enter)
+      if (!isActuallyComposing && (userChar === ' ' || userChar === '\n')) {
+        let ahead = targetIdx;
+        while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
+        
+        if (ahead < content.length && content[ahead] === '\n') {
+          // Jump to next line
+          while (targetIdx < ahead) {
+            if (PUNCT_SET.includes(content[targetIdx])) activated.add(targetIdx);
+            targetIdx++;
           }
-          if (bodyCharAhead) { resultText += content[targetIdx]; activated.add(targetIdx); targetIdx++; continue; }
-          break;
+          while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
+          
+          skipCurrentPunct(); 
+          if (isLastIndex) isLastCharComplete = true;
+          continue;
+        } else {
+            // Match space
+            if (content[targetIdx] === ' ' || content[targetIdx] === '\n') {
+                targetIdx++;
+                while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
+                if (isLastIndex) isLastCharComplete = true;
+                continue;
+            } else {
+                targetToUserMap.set(targetIdx, { char: userChar, isMistake: true });
+                lastMistakeIdx = i;
+                targetIdx++;
+                if (isLastIndex) isLastCharComplete = true;
+                continue;
+            }
         }
       }
 
       const targetChar = content[targetIdx];
-      if (!targetChar) {
-        resultText += userChar; 
-        targetIdx++; 
-        continue;
-      }
+      if (!targetChar) { targetIdx++; continue; }
 
-      const isCorrectPrefix = checkCorrect(userChar, targetChar, content[targetIdx + 1]);
+      const isCorrectPrefix = isJamoPrefix(userChar, targetChar, content[targetIdx + 1]);
       const isComplete = isSufficientlyCompleted(userChar, targetChar);
       const isMistake = !isCorrectPrefix || (!isActuallyComposing && !isComplete);
 
       if (!isMistake) {
-        resultText += getCorrectChar(userChar, targetChar);
         if (isActuallyComposing) composingTargetIdx = targetIdx;
-        lastCharCommitted = isBodyChar(targetChar) ? isComplete : !isActuallyComposing;
-        targetIdx++;
-        if (lastCharCommitted) {
-          while (targetIdx < content.length) {
-            if (tryConsumeEllipsis()) continue;
-            if (PUNCT_SET.includes(content[targetIdx])) { resultText += content[targetIdx]; activated.add(targetIdx); targetIdx++; continue; }
-            break;
-          }
-        }
-      } else { 
-        resultText += userChar; 
-        mistakesSet.add(resultText.length - 1); 
-        if (isLastIndex && !isActuallyComposing) isLastInputMistake = true;
-        lastCharCommitted = true; 
-        targetIdx++; 
-      }
-      if (isLastIndex) isLastCharComplete = lastCharCommitted;
-    }
-    return { 
-      typedText: resultText, 
-      mistakes: mistakesSet, 
-      activatedPunctIndices: activated, 
-      composingTargetIdx, 
-      isLastCharComplete,
-      targetIdxReached: targetIdx,
-      isLastInputMistake
-    };
-  }, [userInputHistory, isComposing, session.content, checkCorrect, getCorrectChar, isSufficientlyCompleted, isBodyChar, isDblQuote]);
+        targetToUserMap.set(targetIdx, { char: userChar, isMistake: false });
+        
+        // As soon as a character (or prefix) is correct, activate ALL punctuation attached to this word cluster
+        activateTrailingPunctInWord(targetIdx);
 
-  const { typedText, mistakes, activatedPunctIndices, composingTargetIdx, isLastCharComplete, targetIdxReached, isLastInputMistake } = alignedState;
+        const lastCommitted = isBodyChar(targetChar) ? isComplete : !isActuallyComposing;
+        targetIdx++;
+        
+        // Also skip immediately following punctuation if fully committed
+        if (lastCommitted) {
+            skipCurrentPunct();
+            if (content[targetIdx-1] === '\n') skipCurrentPunct();
+        }
+        
+        if (isLastIndex) isLastCharComplete = lastCommitted;
+      } else { 
+        targetToUserMap.set(targetIdx, { char: userChar, isMistake: true });
+        if (isLastIndex && !isActuallyComposing) lastMistakeIdx = i;
+        targetIdx++; 
+        if (isLastIndex) isLastCharComplete = true;
+      }
+    }
+
+    // Final punctuation activation
+    skipCurrentPunct();
+
+    return { targetToUserMap, activated, composingTargetIdx, isLastCharComplete, targetIdxReached: targetIdx, lastMistakeIdx };
+  }, [userInput, isComposing, content, isSufficientlyCompleted, isBodyChar]);
+
+  const { targetToUserMap, activated, composingTargetIdx, isLastCharComplete, targetIdxReached, lastMistakeIdx } = alignedState;
+
+  const prevMistakeRef = useRef<number>(-1);
+  useEffect(() => {
+    if (lastMistakeIdx !== -1 && lastMistakeIdx !== prevMistakeRef.current) {
+      playErrorSound();
+      prevMistakeRef.current = lastMistakeIdx;
+    }
+  }, [lastMistakeIdx]);
 
   const updateCursorPosition = useCallback(() => {
     const parentEl = layersRef.current;
     if (!parentEl) return;
-    const tLen = typedText.length;
-    const contentLen = session.content.length;
-    const charIdxToMeasure = tLen >= contentLen ? contentLen - 1 : (tLen === 0 ? 0 : tLen);
-    const charEl = document.getElementById(`char-ghost-${charIdxToMeasure}`);
+
+    // Use targetIdxReached to find the current ghost character element
+    const charIdx = targetIdxReached >= content.length ? content.length - 1 : targetIdxReached;
+    const charEl = document.getElementById(`char-ghost-${charIdx}`);
+    
     if (charEl) {
       const rect = charEl.getBoundingClientRect();
       const parentRect = parentEl.getBoundingClientRect();
-      let top = rect.top - parentRect.top;
-      let left = tLen === 0 ? rect.left - parentRect.left : (tLen >= contentLen ? rect.right - parentRect.left : rect.left - parentRect.left);
+      const isAtEnd = targetIdxReached >= content.length;
       
-      if (tLen > 0 && tLen < contentLen && session.content[tLen] === '\n') {
-        if (isLastCharComplete) {
-          const nextEl = document.getElementById(`char-ghost-${tLen + 1}`);
-          if (nextEl) {
-            const nextRect = nextEl.getBoundingClientRect();
-            top = nextRect.top - parentRect.top;
-            left = nextRect.left - parentRect.left;
-          }
-        }
+      let top = rect.top - parentRect.top;
+      let left = isAtEnd ? rect.right - parentRect.left : rect.left - parentRect.left;
+      
+      // Explicit handling for the very start to ensure alignment
+      if (targetIdxReached === 0) {
+        left = rect.left - parentRect.left;
       }
+      
+      // Precision handling for newlines
+      if (!isAtEnd && content[targetIdxReached] === '\n') {
+          const nextEl = document.getElementById(`char-ghost-${targetIdxReached + 1}`);
+          if (nextEl) {
+              const nextRect = nextEl.getBoundingClientRect();
+              top = nextRect.top - parentRect.top;
+              left = nextRect.left - parentRect.left;
+          }
+      }
+
       setCursorPos({ top, left, height: rect.height });
-      if (!isReady) setIsReady(true);
+      
+      if (!isReady) {
+          // Double frame request to ensure layout is definitely painted before showing the cursor
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => setIsReady(true));
+          });
+      }
     }
-  }, [typedText.length, session.content, isReady, isLastCharComplete]);
+  }, [targetIdxReached, content, isReady]);
 
-  useLayoutEffect(() => {
-    updateCursorPosition();
-    const timer = setTimeout(updateCursorPosition, 50);
-    return () => clearTimeout(timer);
-  }, [updateCursorPosition]);
-
+  useLayoutEffect(updateCursorPosition, [updateCursorPosition]);
   useAutoScroll({ containerRef, targetTop: cursorPos.top, targetHeight: cursorPos.height, isPaused: isFinishedRef.current || isPaused });
 
-  const calculateStats = useCallback((currentTyped: string, currentMistakes: Set<number>, forcedEndTime?: number) => {
+  const calculateStats = useCallback((currentMistakesCount: number, currentTypedCount: number, forcedEndTime?: number) => {
     let elapsedMs = accumulatedTimeRef.current;
     if (startTimeRef.current !== null) elapsedMs += (forcedEndTime || Date.now()) - startTimeRef.current;
     const elapsedSeconds = elapsedMs / 1000;
@@ -268,110 +317,77 @@ const TypingAreaV2: React.FC<Props> = ({
     let speed = 0;
     if (session.language === Language.KOREAN) {
       let jamoCount = 0;
-      for (let i = 0; i < currentTyped.length; i++) {
-        if (currentMistakes.has(i)) continue;
-        const char = currentTyped[i];
-        if (char === '\n') continue;
-        if (char === ' ') { jamoCount++; continue; }
-        jamoCount += decomposeHangul(char).length;
-      }
+      targetToUserMap.forEach((data, tIdx) => {
+          if (!data.isMistake && content[tIdx] !== '\n') {
+              jamoCount += (data.char === ' ' ? 1 : getCachedDecomposition(data.char).length);
+          }
+      });
       speed = (jamoCount / elapsedSeconds) * 60;
     } else {
       let correctLength = 0;
-      for (let i = 0; i < currentTyped.length; i++) {
-        if (!currentMistakes.has(i) && currentTyped[i] !== '\n') correctLength++;
-      }
+      targetToUserMap.forEach((data, tIdx) => { if (!data.isMistake && content[tIdx] !== '\n') correctLength++; });
       speed = (correctLength / 5) / (elapsedSeconds / 60);
     }
+    
+    let addressedChars = 0;
+    for (let i = 0; i < targetIdxReached; i++) {
+        if (content[i] !== '\n') addressedChars++;
+    }
+    const finalTypedCount = Math.min(addressedChars, totalCount);
 
-    const accuracy = currentTyped.length === 0 ? 100 : Math.max(0, 100 - (currentMistakes.size / currentTyped.length) * 100);
-    return { speed: Math.min(speed, 2500), accuracy, typedCount: Math.min(currentTyped.replace(/\n/g, '').length, totalCountRef.current), totalCount: totalCountRef.current, elapsedTime: elapsedSeconds };
-  }, [session.language]);
+    const accuracy = currentTypedCount === 0 ? 100 : Math.max(0, 100 - (currentMistakesCount / currentTypedCount) * 100);
+    return { speed: Math.min(speed, 2500), accuracy, typedCount: finalTypedCount, totalCount, elapsedTime: elapsedSeconds };
+  }, [session.language, totalCount, targetToUserMap, content, targetIdxReached]);
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isFinishedRef.current || isPaused) return;
-    setUserInputHistory(e.target.value.split(''));
+    if (isFinishedRef.current || isPaused || isJumpingRef.current) return;
+    setUserInput(e.target.value);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isFinishedRef.current || isPaused) return;
-    if (startTimeRef.current === null && !isPaused) startTimeRef.current = Date.now();
+    if (startTimeRef.current === null) startTimeRef.current = Date.now();
     
-    const curIdx = typedText.length;
-
-    // 1. Unified Line-break/Jump Logic
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
-      // Look ahead in content to find a newline
-      while (ahead < session.content.length && (PUNCT_SET.includes(session.content[ahead]) || session.content[ahead] === ' ')) {
-        ahead++;
-      }
+      while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
       
-      if (ahead < session.content.length && session.content[ahead] === '\n') {
-        // Play Enter Sound for both Space-jump and Enter-jump
+      if (ahead < content.length && content[ahead] === '\n') {
         playTypingSound('Enter');
-        
-        // MANUALLY sync textarea to prevent duplication
-        if (hiddenInputRef.current) {
-          const val = hiddenInputRef.current.value + '\n';
-          hiddenInputRef.current.value = val;
-          setUserInputHistory(val.split(''));
-        }
+        e.preventDefault();
+        isJumpingRef.current = true;
+        const newVal = userInput + '\n';
+        if (hiddenInputRef.current) hiddenInputRef.current.value = newVal;
+        setUserInput(newVal);
         setKeystrokes(prev => prev + 1);
-        e.preventDefault();
+        setTimeout(() => { isJumpingRef.current = false; }, 10); 
         return;
       }
-      
-      if (e.key === 'Enter') {
-        playTypingSound('Enter');
-        e.preventDefault();
-        return;
-      }
-
-      if (e.key === ' ') {
-        playTypingSound(' ');
-      }
+      if (e.key === 'Enter') { playTypingSound('Enter'); e.preventDefault(); return; }
+      if (e.key === ' ') playTypingSound(' ');
     } else {
-      // 2. Physical Typing Sound for other keys
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        playTypingSound('Backspace');
-      } else if (e.code.startsWith('Key') || e.code.startsWith('Digit')) {
-        playTypingSound(e.code);
-      } else if (e.key.length === 1) {
-        playTypingSound(e.key);
-      }
+      if (e.key === 'Backspace' || e.key === 'Delete') playTypingSound('Backspace');
+      else if (e.code.startsWith('Key') || e.code.startsWith('Digit')) playTypingSound(e.code);
+      else if (e.key.length === 1) playTypingSound(e.key);
     }
-
-    if (e.nativeEvent.isComposing) return;
-    if (PUNCT_SET.includes(e.key) || e.key === '.') { e.preventDefault(); return; }
-    if (!['Control', 'Alt', 'Shift', 'Meta', 'CapsLock', 'Tab', ' ', 'Enter'].includes(e.key)) {
+    if (!e.nativeEvent.isComposing && !['Control', 'Alt', 'Shift', 'Meta', 'CapsLock', 'Tab', ' ', 'Enter'].includes(e.key)) {
       setKeystrokes(prev => prev + 1);
     }
   };
 
   useEffect(() => {
-    if (isFinishedRef.current || isPaused) return;
-    
-    // Trigger error sound only if the last history change resulted in a mistake
-    if (userInputHistory.length > lastHistoryLenRef.current) {
-      if (isLastInputMistake) {
-        playErrorSound();
-      }
-    }
-    lastHistoryLenRef.current = userInputHistory.length;
-  }, [userInputHistory.length, isLastInputMistake, isPaused]);
-
-  useEffect(() => {
     if (isFinishedRef.current) return;
-    const currentStats = calculateStats(typedText, mistakes);
+    let mistakesCount = 0;
+    targetToUserMap.forEach(d => { if (d.isMistake) mistakesCount++; });
+    const currentStats = calculateStats(mistakesCount, userInput.replace(/\n/g, '').length);
     if (currentStats) onStatsUpdate(currentStats);
     
-    if (targetIdxReached === session.content.length && isLastCharComplete && typedText.length > 0) {
+    if (targetIdxReached >= content.length && isLastCharComplete && userInput.length > 0 && !isComposing) {
       isFinishedRef.current = true;
-      const finalStats = calculateStats(typedText, mistakes, Date.now());
+      const finalStats = calculateStats(mistakesCount, userInput.replace(/\n/g, '').length, Date.now());
       if (finalStats) onComplete(finalStats);
     }
-  }, [targetIdxReached, isLastCharComplete, calculateStats, onStatsUpdate, onComplete, session.content.length, mistakes, typedText]);
+  }, [targetIdxReached, isLastCharComplete, isComposing, calculateStats, onStatsUpdate, onComplete, content.length, userInput, targetToUserMap]);
 
   return (
     <div className="h-full min-h-0 flex flex-col relative" onClick={() => !isPaused && hiddenInputRef.current?.focus()}>
@@ -383,34 +399,23 @@ const TypingAreaV2: React.FC<Props> = ({
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-4">
         <div className="relative min-h-full pb-[70vh]">
           <div ref={layersRef} className="relative w-full text-2xl leading-relaxed tracking-tight whitespace-pre-wrap break-keep text-left select-none outline-none font-medium">
-            <div className={`absolute w-[2px] bg-black/50 z-20 ${isReady ? 'transition-[left,top] duration-[180ms] ease-out' : ''}`} style={{ top: `${cursorPos.top}px`, left: `${cursorPos.left}px`, height: `${cursorPos.height || 32}px`, opacity: (isFinishedRef.current || !isReady || isPaused) ? 0 : 1 }} />
-            <div className="absolute top-0 left-0 w-full pointer-events-none z-0">
-              {preCalculatedLines.map(({ line, lineOffset }, lIdx) => (
-                <div key={lIdx} className="min-h-[1.6em]">{line.split('').map((char, cIdx) => {
-                  const absIdx = lineOffset + cIdx;
-                  const isBeingComposed = absIdx === composingTargetIdx && isComposing;
-                  let color = isBeingComposed ? 'transparent' : (activatedPunctIndices.has(absIdx) ? '#333333' : (absIdx < typedText.length && PUNCT_SET.includes(char) ? '#333333' : '#E5E7EB'));
-                  return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }}>{char}</span>;
-                })}</div>
-              ))}
-            </div>
-            <div className="relative w-full z-10 pointer-events-none">
-              {preCalculatedLines.map(({ line, lineOffset }, lIdx) => (
-                <div key={lIdx} className="min-h-[1.6em]">{line.split('').map((targetChar, cIdx) => {
-                  const absIdx = lineOffset + cIdx;
-                  if (absIdx < typedText.length) {
-                    const char = typedText[absIdx];
-                    if (PUNCT_SET.includes(char)) return <span key={absIdx} className="invisible">{char}</span>;
-                    return <span key={absIdx} className={mistakes.has(absIdx) ? 'text-red-500' : 'text-black'}>{char}</span>;
-                  }
-                  return <span key={absIdx} className="invisible">{targetChar}</span>;
-                })}</div>
-              ))}
-            </div>
+            {/* Intelligent Cursor with instant opacity toggle and smooth motion */}
+            <div className={`absolute w-[2px] bg-black/50 z-20 ${isReady ? 'transition-[left,top] duration-[180ms] ease-out opacity-100' : 'opacity-0'}`} style={{ top: `${cursorPos.top}px`, left: `${cursorPos.left}px`, height: `${cursorPos.height || 32}px`, visibility: (isFinishedRef.current || !isReady || isPaused) ? 'hidden' : 'visible' }} />
+            {preCalculatedLines.map(({ line, lineOffset }, lIdx) => (
+              <MemoizedLine 
+                key={lIdx} 
+                line={line} 
+                lineOffset={lineOffset} 
+                targetToUserMap={targetToUserMap} 
+                activatedPunct={activated} 
+                composingIdx={composingTargetIdx} 
+                isComposing={isComposing} 
+              />
+            ))}
           </div>
         </div>
       </div>
-      <textarea ref={hiddenInputRef} className="fixed opacity-0 pointer-events-none" value={userInputHistory.join('')} onChange={handleInput} onKeyDown={handleKeyDown} onCompositionStart={() => setIsComposing(true)} onCompositionEnd={() => setIsComposing(false)} onBlur={() => setIsComposing(false)} disabled={isPaused} autoFocus spellCheck={false} autoComplete="off" />
+      <textarea ref={hiddenInputRef} className="fixed opacity-0 pointer-events-none" value={userInput} onChange={handleInput} onKeyDown={handleKeyDown} onCompositionStart={() => setIsComposing(true)} onCompositionEnd={() => setIsComposing(false)} onBlur={() => setIsComposing(false)} disabled={isPaused} autoFocus spellCheck={false} autoComplete="off" />
     </div>
   );
 };

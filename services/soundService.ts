@@ -38,7 +38,7 @@ const enterSound = new SoundPool('./sounds/Enter.mp3', 8, 1.0);
 const spaceSound = new SoundPool('./sounds/Space.mp3', 8, 1.0);
 const deleteSound = new SoundPool('./sounds/Delete.mp3', 8, 1.0);
 const completeSound = new SoundPool('./sounds/Complete.mp3', 1, 1.0);
-const errorSound = new SoundPool('./sounds/Error.mp3', 5, 1.0);
+const errorSound = new SoundPool('./sounds/Error.mp3', 5, 0.5); // Updated volume to 0.5
 
 const K1_REGEX = /^[A-F0-9]$/i;
 const K2_REGEX = /^[G-L]$/i;
