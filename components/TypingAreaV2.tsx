@@ -161,6 +161,9 @@ const TypingAreaV2: React.FC<Props> = ({
 
     skipCurrentPunct();
 
+    const isKorean = session.language === Language.KOREAN;
+    const isEnglish = session.language === Language.ENGLISH;
+
     const inputLen = userInput.length;
     for (let i = 0; i < inputLen; i++) {
       const userChar = userInput[i];
@@ -204,24 +207,39 @@ const TypingAreaV2: React.FC<Props> = ({
       const targetChar = content[targetIdx];
       if (!targetChar) { targetIdx++; continue; }
 
-      const isCorrectPrefix = isJamoPrefix(userChar, targetChar, content[targetIdx + 1]);
-      const isComplete = isSufficientlyCompleted(userChar, targetChar);
-      
-      // Strict matching for committed characters
-      let isMistake = false;
-      if (isActuallyComposing) {
-          isMistake = !isCorrectPrefix;
+      let isCorrect = false;
+      if (isKorean) {
+        isCorrect = isJamoPrefix(userChar, targetChar, content[targetIdx + 1]);
       } else {
+        // Optional Caps for English: If target is Upper, accept Lower. If target is Lower, only exact.
+        const isTargetUpper = targetChar === targetChar.toUpperCase() && targetChar !== targetChar.toLowerCase();
+        isCorrect = isTargetUpper ? (userChar.toLowerCase() === targetChar.toLowerCase()) : (userChar === targetChar);
+      }
+
+      let isMistake = false;
+      if (isKorean) {
+        if (isActuallyComposing) {
+          isMistake = !isCorrect;
+        } else {
           isMistake = userChar !== targetChar;
+        }
+      } else {
+        isMistake = !isCorrect;
       }
 
       if (!isMistake) {
+        let displayChar = userChar;
+        if (isEnglish) {
+          const isTargetUpper = targetChar === targetChar.toUpperCase() && targetChar !== targetChar.toLowerCase();
+          if (isTargetUpper) displayChar = targetChar;
+        }
+
         if (isActuallyComposing) composingTargetIdx = targetIdx;
-        targetToUserMap.set(targetIdx, { char: userChar, isMistake: false });
+        targetToUserMap.set(targetIdx, { char: displayChar, isMistake: false });
         
-        // Immediate punctuation activation upon correct input/prefix
         activateTrailingPunctInWord(targetIdx);
 
+        const isComplete = isKorean ? isSufficientlyCompleted(userChar, targetChar) : true;
         const lastCommitted = isBodyChar(targetChar) ? isComplete : !isActuallyComposing;
         targetIdx++;
         
@@ -241,11 +259,10 @@ const TypingAreaV2: React.FC<Props> = ({
     skipCurrentPunct();
 
     return { targetToUserMap, activated, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached: targetIdx };
-  }, [userInput, isComposing, content, isSufficientlyCompleted, isBodyChar]);
+  }, [userInput, isComposing, content, isSufficientlyCompleted, isBodyChar, session.language]);
 
   const { targetToUserMap, activated, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached } = alignedState;
 
-  // Improved Error Sound Logic: trigger whenever total mistake count increases
   const prevMistakeCount = useRef<number>(0);
   useEffect(() => {
     if (mistakes.size > prevMistakeCount.current) {
@@ -269,7 +286,6 @@ const TypingAreaV2: React.FC<Props> = ({
       let top = rect.top - parentRect.top;
       let left = isAtEnd ? rect.right - parentRect.left : rect.left - parentRect.left;
       
-      // Strict alignment for the first character
       if (targetIdxReached === 0) {
         left = rect.left - parentRect.left;
       }
