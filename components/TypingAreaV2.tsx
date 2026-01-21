@@ -192,12 +192,13 @@ const TypingAreaV2: React.FC<Props> = ({
             if (content[targetIdx] === ' ' || content[targetIdx] === '\n') {
                 targetIdx++;
                 while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
+                skipCurrentPunct(); // Ensure we skip start-of-line punct after skip
                 if (isLastIndex) isLastCharComplete = true;
                 continue;
             } else {
                 targetToUserMap.set(targetIdx, { char: userChar, isMistake: true });
                 mistakes.add(targetIdx);
-                targetIdx++;
+                targetIdx++; 
                 if (isLastIndex) isLastCharComplete = true;
                 continue;
             }
@@ -211,7 +212,6 @@ const TypingAreaV2: React.FC<Props> = ({
       if (isKorean) {
         isCorrect = isJamoPrefix(userChar, targetChar, content[targetIdx + 1]);
       } else {
-        // Optional Caps for English: If target is Upper, accept Lower. If target is Lower, only exact.
         const isTargetUpper = targetChar === targetChar.toUpperCase() && targetChar !== targetChar.toLowerCase();
         isCorrect = isTargetUpper ? (userChar.toLowerCase() === targetChar.toLowerCase()) : (userChar === targetChar);
       }
@@ -275,7 +275,20 @@ const TypingAreaV2: React.FC<Props> = ({
     const parentEl = layersRef.current;
     if (!parentEl) return;
 
-    const charIdx = targetIdxReached >= content.length ? content.length - 1 : targetIdxReached;
+    let charIdx = targetIdxReached >= content.length ? content.length - 1 : targetIdxReached;
+    
+    // If the current target index points to a newline or empty space, 
+    // we need to find the first real visible character element to snap the cursor correctly.
+    if (content[charIdx] === '\n') {
+      let lookAhead = charIdx + 1;
+      while (lookAhead < content.length && content[lookAhead] === '\n') {
+        lookAhead++;
+      }
+      if (lookAhead < content.length) {
+        charIdx = lookAhead;
+      }
+    }
+
     const charEl = document.getElementById(`char-ghost-${charIdx}`);
     
     if (charEl) {
@@ -286,19 +299,23 @@ const TypingAreaV2: React.FC<Props> = ({
       let top = rect.top - parentRect.top;
       let left = isAtEnd ? rect.right - parentRect.left : rect.left - parentRect.left;
       
+      // If we are exactly at the start of a line (potentially after newlines jump)
+      // Ensure we use the left side of the character.
+      if (charIdx === targetIdxReached && !isAtEnd) {
+          left = rect.left - parentRect.left;
+      }
+
+      // Special case: if we jumped to a position that is exactly a newline in the content, 
+      // but targetIdxReached is now at the start of the next line's element.
+      if (targetIdxReached > 0 && content[targetIdxReached-1] === '\n') {
+          left = rect.left - parentRect.left;
+          top = rect.top - parentRect.top;
+      }
+
       if (targetIdxReached === 0) {
         left = rect.left - parentRect.left;
       }
       
-      if (!isAtEnd && content[targetIdxReached] === '\n') {
-          const nextEl = document.getElementById(`char-ghost-${targetIdxReached + 1}`);
-          if (nextEl) {
-              const nextRect = nextEl.getBoundingClientRect();
-              top = nextRect.top - parentRect.top;
-              left = nextRect.left - parentRect.left;
-          }
-      }
-
       setCursorPos({ top, left, height: rect.height });
       
       if (!isReady) {
