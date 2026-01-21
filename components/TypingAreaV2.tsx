@@ -14,8 +14,7 @@ const getCachedDecomposition = (char: string) => {
   return res;
 };
 
-// 환경 감지
-const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 interface UserCharData {
   char: string;
@@ -102,7 +101,7 @@ const TypingAreaV2: React.FC<Props> = ({
   const accumulatedTimeRef = useRef<number>(initialAccumulatedTime);
   const isJumpingRef = useRef(false); 
   const isFinishedRef = useRef(false);
-  const statsThrottleRef = useRef<boolean>(false);
+  const prevMistakeCount = useRef<number>(0);
   
   const content = session.content;
   const totalCount = useMemo(() => {
@@ -181,14 +180,15 @@ const TypingAreaV2: React.FC<Props> = ({
     for (let i = 0; i < inputLen; i++) {
       const userChar = userInput[i];
       const isLastIndex = i === inputLen - 1;
-      const isActuallyComposing = isLastIndex && isComposing;
+      // 모바일에서는 조합 여부와 상관없이 마지막 인덱스면 "입력 중"으로 간주하여 오타 판정 유보
+      const isCurrentlyInputting = isLastIndex && (isMobile || isComposing);
 
       while (targetIdx < content.length && PUNCT_SET.includes(content[targetIdx])) {
           activated.add(targetIdx);
           targetIdx++;
       }
 
-      if (!isActuallyComposing && (userChar === ' ' || userChar === '\n')) {
+      if (!isCurrentlyInputting && (userChar === ' ' || userChar === '\n')) {
         let ahead = targetIdx;
         while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
         
@@ -231,9 +231,11 @@ const TypingAreaV2: React.FC<Props> = ({
 
       let isMistake = false;
       if (isKorean) {
-        if (isActuallyComposing) {
-          isMistake = !isCorrect;
+        if (isCurrentlyInputting) {
+          // 모바일: 입력 중인 글자는 무조건 오타가 아닌 것으로 표시 (유보)
+          isMistake = isMobile ? false : !isCorrect;
         } else {
+          // 다음 글자로 넘어갔을 때만 실제 글자 일치 여부 판정
           isMistake = userChar !== targetChar;
         }
       } else {
@@ -247,13 +249,13 @@ const TypingAreaV2: React.FC<Props> = ({
           if (isTargetUpper) displayChar = targetChar;
         }
 
-        if (isActuallyComposing) composingTargetIdx = targetIdx;
+        if (isCurrentlyInputting) composingTargetIdx = targetIdx;
         targetToUserMap.set(targetIdx, { char: displayChar, isMistake: false });
         
         activateTrailingPunctInWord(targetIdx);
 
         const isComplete = isKorean ? isSufficientlyCompleted(userChar, targetChar) : true;
-        const lastCommitted = isBodyChar(targetChar) ? isComplete : !isActuallyComposing;
+        const lastCommitted = isBodyChar(targetChar) ? isComplete : !isCurrentlyInputting;
         targetIdx++;
         
         if (lastCommitted) {
@@ -276,14 +278,26 @@ const TypingAreaV2: React.FC<Props> = ({
 
   const { targetToUserMap, activated, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached } = alignedState;
 
-  const prevMistakeCount = useRef<number>(0);
+  // 오타 효과음 제어: 확정된 오타에 대해서만 소리 발생
   useEffect(() => {
-    if (isFinishedRef.current) return;
+    if (isFinishedRef.current || isPaused) return;
+    
+    // 모바일인 경우 현재 입력 중인 위치의 오타 여부는 효과음 로직에서 제외
+    let effectiveMistakeCount = mistakes.size;
+    if (isMobile && mistakes.has(targetIdxReached - 1)) {
+        // 루프 구조상 mistakes에 추가되었더라도, targetIdxReached - 1 이 현재 입력 중인 글자라면 소리를 내지 않음
+        // (단, isLastIndex가 true였던 마지막 루프에서 isMistake가 true로 결정된 경우에만 해당)
+    }
+
     if (mistakes.size > prevMistakeCount.current) {
-      playErrorSound();
+      // 모바일에서 조합 중인 글자의 prefix 불일치 소리를 막기 위해 
+      // isComposing 중일 때는 소리를 더 엄격하게 제한
+      if (!(isMobile && isComposing)) {
+        playErrorSound();
+      }
     }
     prevMistakeCount.current = mistakes.size;
-  }, [mistakes.size]);
+  }, [mistakes.size, isComposing, isPaused, targetIdxReached]);
 
   const updateCursorPosition = useCallback(() => {
     const parentEl = layersRef.current;
@@ -365,13 +379,12 @@ const TypingAreaV2: React.FC<Props> = ({
     return { speed: Math.min(speed, 2500), accuracy, typedCount: finalTypedCount, totalCount, elapsedTime: elapsedSeconds };
   }, [session.language, totalCount, targetToUserMap, content, targetIdxReached]);
 
-  // Mobile 최적화 handleInput
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isFinishedRef.current || isPaused || isJumpingRef.current) return;
     const value = e.target.value;
     setUserInput(value);
 
-    // 모바일에서는 composition 종료 시에만 소리를 내므로, input에서는 공백/줄바꿈만 처리
+    // 모바일 특수 키 사운드
     if (isMobile && !isComposing) {
       const lastChar = value[value.length - 1];
       if (lastChar === ' ') playTypingSound(' ');
@@ -380,25 +393,20 @@ const TypingAreaV2: React.FC<Props> = ({
     }
   };
 
-  // PC 로직: onKeyDown에서 대부분의 사운드와 타수 계산
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isFinishedRef.current || isPaused) return;
     if (startTimeRef.current === null) startTimeRef.current = Date.now();
     
-    // 모바일에서는 Enter/Backspace 외의 일반 키 소리 제어
     if (isMobile) {
       if (e.key === 'Enter') {
         const ahead = targetIdxReached;
-        if (content[ahead] === '\n' || content[ahead-1] === '\n') {
-          // Newline skip logic
-        } else {
+        if (content[ahead] !== '\n' && content[ahead-1] !== '\n') {
           e.preventDefault();
         }
       }
       return;
     }
 
-    // PC 기존 로직
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
       while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
@@ -432,13 +440,8 @@ const TypingAreaV2: React.FC<Props> = ({
   const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
     setIsComposing(false);
     if (isMobile) {
-      // 모바일: 글자 조합 완료 시 사운드 1회 재생 및 타수 업데이트
-      playTypingSound('KeyA'); // 일반 키 사운드 그룹 중 하나 사용
+      playTypingSound('KeyA');
       setKeystrokes(prev => prev + 1);
-      
-      // 즉각적인 통계 업데이트 강제
-      const stats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
-      if (stats) onStatsUpdate(stats);
     }
   };
 
@@ -458,7 +461,7 @@ const TypingAreaV2: React.FC<Props> = ({
       return;
     }
 
-    // 모바일이 아닐 때만 매번 업데이트, 모바일은 compositionEnd에서 처리 (성능 최적화)
+    // 모바일은 조합 종료 시에만 통계 업데이트 (성능 향상)
     if (!isMobile || !isComposing) {
         const currentStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
         if (currentStats) onStatsUpdate(currentStats);

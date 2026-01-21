@@ -1,3 +1,4 @@
+
 // Import React to provide the React namespace for RefObject
 import React, { useCallback, useRef, useEffect } from 'react';
 
@@ -7,6 +8,8 @@ interface AutoScrollOptions {
   targetHeight: number;
   isPaused?: boolean;
 }
+
+const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 export const useAutoScroll = ({
   containerRef,
@@ -26,20 +29,23 @@ export const useAutoScroll = ({
     const distance = destinationTop - startTop;
 
     // 이동 거리가 매우 짧으면 애니메이션 없이 즉시 이동하여 반응성 확보
-    if (Math.abs(distance) < 2) {
+    if (Math.abs(distance) < 1) {
       container.scrollTop = destinationTop;
       return;
     }
 
     const startTime = performance.now();
-    // 거리 비례 시간 계산 (최소 150ms ~ 최대 400ms)
-    const duration = Math.min(400, Math.max(150, 200 + Math.abs(distance) / 3));
+    // 거리 비례 시간 계산 (최소 150ms ~ 최대 450ms)
+    // 모바일에서는 조금 더 부드러운 느낌을 위해 지속 시간을 약간 조정
+    const duration = isMobile 
+      ? Math.min(450, Math.max(200, 250 + Math.abs(distance) / 2))
+      : Math.min(400, Math.max(150, 200 + Math.abs(distance) / 3));
 
     const step = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
       
-      // Ease-out Cubic
+      // Ease-out Cubic (더 매끄러운 감속)
       const ease = 1 - Math.pow(1 - progress, 3);
       container.scrollTop = startTop + (distance * ease);
 
@@ -62,27 +68,38 @@ export const useAutoScroll = ({
     const viewportHeight = container.clientHeight;
     const currentScroll = container.scrollTop;
     
-    // 안전 영역 설정 (상단 20%, 하단 35%) - 타이핑 흐름을 방해하지 않도록 하단 마진을 더 줌
-    const topPadding = viewportHeight * 0.20;
-    const bottomPadding = viewportHeight * 0.35;
-
-    const safeTopBoundary = currentScroll + topPadding;
-    const safeBottomBoundary = currentScroll + viewportHeight - bottomPadding;
-
     let nextScrollTop = currentScroll;
 
-    if (targetTop < safeTopBoundary) {
-      // 캐럿이 너무 위에 있음 -> 위로 스크롤
-      nextScrollTop = targetTop - topPadding;
-    } else if (targetTop + targetHeight > safeBottomBoundary) {
-      // 캐럿이 너무 아래에 있음 -> 아래로 스크롤
-      nextScrollTop = targetTop + targetHeight - (viewportHeight - bottomPadding);
-    }
+    if (isMobile) {
+      // 모바일: 현재 타이핑 라인을 화면의 약 40~45% 지점에 위치시킴
+      // 키보드가 올라오면 가용 높이가 줄어드는데, 그 상태에서 중앙에 가깝게 유지
+      const centerTarget = targetTop - (viewportHeight * 0.42);
+      nextScrollTop = centerTarget;
+      
+      // 모바일에서는 미세한 움직임에도 계속 반응하면 어지러울 수 있으므로
+      // 어느 정도 차이가 날 때만 스무스 스크롤을 실행
+      if (Math.abs(nextScrollTop - currentScroll) > 10) {
+        performSmoothScroll(Math.max(0, nextScrollTop));
+      }
+    } else {
+      // PC: 기존의 안전 영역(Safe Zone) 방식 유지
+      const topPadding = viewportHeight * 0.20;
+      const bottomPadding = viewportHeight * 0.35;
 
-    nextScrollTop = Math.max(0, nextScrollTop);
+      const safeTopBoundary = currentScroll + topPadding;
+      const safeBottomBoundary = currentScroll + viewportHeight - bottomPadding;
 
-    if (Math.abs(nextScrollTop - currentScroll) > 1) {
-      performSmoothScroll(nextScrollTop);
+      if (targetTop < safeTopBoundary) {
+        nextScrollTop = targetTop - topPadding;
+      } else if (targetTop + targetHeight > safeBottomBoundary) {
+        nextScrollTop = targetTop + targetHeight - (viewportHeight - bottomPadding);
+      }
+
+      nextScrollTop = Math.max(0, nextScrollTop);
+
+      if (Math.abs(nextScrollTop - currentScroll) > 1) {
+        performSmoothScroll(nextScrollTop);
+      }
     }
   }, [targetTop, targetHeight, isPaused, performSmoothScroll, containerRef]);
 
