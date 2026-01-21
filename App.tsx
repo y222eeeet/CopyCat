@@ -289,7 +289,7 @@ const App: React.FC = () => {
 
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm px-4">
-          <div className={`${isDarkMode ? 'bg-[#1e1e1e] border-gray-800' : 'bg-white border-gray-100'} rounded-2xl w-full max-w-sm p-6 shadow-xl border`}>
+          <div className={`${isDarkMode ? 'bg-[#1e1e1e] border-gray-800' : 'bg-white border-gray-100'} rounded-2xl w-full max-sm p-6 shadow-xl border`}>
             <h3 className={`text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-6`}>Settings</h3>
             <div className="flex items-center justify-between mb-8">
               <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Remember progress</span>
@@ -323,7 +323,7 @@ const App: React.FC = () => {
             </button>
           </div>
           <div className="flex justify-between items-center">
-            <h1 className={`text-xl font-bold tracking-tight truncate mr-4 transition-colors ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{session.filename}</h1>
+            <h1 className={`text-[30px] font-normal tracking-tight truncate mr-4 transition-colors ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{session.filename}</h1>
             <button onClick={togglePause} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all text-[11px] font-bold uppercase tracking-widest ${isPaused ? (isDarkMode ? 'bg-gray-200 text-black' : 'bg-black text-white') : (isDarkMode ? 'bg-gray-800 text-gray-500 hover:text-gray-300' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black')}`}>
               {isPaused ? "Resume" : "Pause"}
             </button>

@@ -29,7 +29,7 @@ const MemoizedLine = React.memo(({
   isDarkMode
 }: any) => {
   return (
-    <div className="min-h-[1.6em] relative">
+    <div className="min-h-[40px] relative">
       <div className="absolute top-0 left-0 w-full pointer-events-none">
         {line.split('').map((char: string, cIdx: number) => {
           const absIdx = lineOffset + cIdx;
@@ -44,7 +44,7 @@ const MemoizedLine = React.memo(({
             color = isDarkMode ? '#bbbbbb' : '#333333';
           }
           
-          return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }} className="transition-colors duration-300">{char}</span>;
+          return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }}>{char}</span>;
         })}
       </div>
       <div className="relative w-full z-10 pointer-events-none">
@@ -54,7 +54,14 @@ const MemoizedLine = React.memo(({
           
           if (userData) {
             if (PUNCT_SET.includes(userData.char)) return <span key={absIdx} className="invisible">{userData.char}</span>;
-            return <span key={absIdx} className={`${userData.isMistake ? 'text-red-500 font-bold' : (isDarkMode ? 'text-[#e0e0e0]' : 'text-black')} transition-colors duration-300`}>{userData.char}</span>;
+            return (
+              <span 
+                key={absIdx} 
+                className={`${userData.isMistake ? 'text-red-500 font-normal' : (isDarkMode ? 'text-[#e0e0e0]' : 'text-black')}`}
+              >
+                {userData.char}
+              </span>
+            );
           }
           return <span key={absIdx} className="invisible">{targetChar}</span>;
         })}
@@ -410,14 +417,15 @@ const TypingAreaV2: React.FC<Props> = ({
       )}
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-4">
         <div className="relative min-h-full pb-[70vh]">
-          <div ref={layersRef} className="relative w-full text-2xl leading-relaxed tracking-tight whitespace-pre-wrap break-keep text-left select-none outline-none font-medium">
+          {/* Main Container: font-light for default typing, line height updated to 40px */}
+          <div ref={layersRef} className="relative w-full text-[25px] leading-[40px] tracking-[-0.02em] whitespace-pre-wrap break-keep text-left select-none outline-none font-light">
             <div 
               className={`absolute w-[2px] ${isDarkMode ? 'bg-white/60' : 'bg-black/60'} z-20 
                 ${isReady ? 'transition-[left,top] duration-[250ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] opacity-100' : 'opacity-0'}`} 
               style={{ 
                 top: `${cursorPos.top}px`, 
                 left: `${cursorPos.left}px`, 
-                height: `${cursorPos.height || 32}px`, 
+                height: `${cursorPos.height || 40}px`, 
                 visibility: (isFinishedRef.current || !isReady || isPaused) ? 'hidden' : 'visible' 
               }} 
             />
