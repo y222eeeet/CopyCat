@@ -6,6 +6,7 @@ interface AutoScrollOptions {
   containerRef: React.RefObject<HTMLElement | null>;
   targetTop: number;
   targetHeight: number;
+  currentLineIndex: number;
   isPaused?: boolean;
 }
 
@@ -15,6 +16,7 @@ export const useAutoScroll = ({
   containerRef,
   targetTop,
   targetHeight,
+  currentLineIndex,
   isPaused = false
 }: AutoScrollOptions) => {
   const scrollAnimRef = useRef<number | null>(null);
@@ -28,23 +30,18 @@ export const useAutoScroll = ({
     const startTop = container.scrollTop;
     const distance = destinationTop - startTop;
 
-    // 이동 거리가 매우 짧으면 애니메이션 없이 즉시 이동하여 반응성 확보
-    if (Math.abs(distance) < 1) {
+    if (Math.abs(distance) < 0.5) {
       container.scrollTop = destinationTop;
       return;
     }
 
     const startTime = performance.now();
-    // 거리 비례 시간 계산 (최소 150ms ~ 최대 450ms)
-    const duration = isMobile 
-      ? Math.min(450, Math.max(200, 250 + Math.abs(distance) / 2))
-      : Math.min(400, Math.max(150, 200 + Math.abs(distance) / 3));
+    const duration = isMobile ? 200 : 300; // Faster scroll for mobile to keep up with typing
 
     const step = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
       
-      // Ease-out Cubic (더 매끄러운 감속)
       const ease = 1 - Math.pow(1 - progress, 3);
       container.scrollTop = startTop + (distance * ease);
 
@@ -70,14 +67,19 @@ export const useAutoScroll = ({
     let nextScrollTop = currentScroll;
 
     if (isMobile) {
-      // 모바일: 현재 타이핑 라인을 화면의 상단 약 25% 지점에 위치시킴
-      // 42%에서 25%로 조정하여 키보드에 가려지는 현상을 방지하고 더 일찍 스크롤되도록 함
-      const centerTarget = targetTop - (viewportHeight * 0.25);
-      nextScrollTop = centerTarget;
-      
-      // 반응성 향상을 위해 임계값을 10에서 5로 낮춤
-      if (Math.abs(nextScrollTop - currentScroll) > 5) {
-        performSmoothScroll(Math.max(0, nextScrollTop));
+      // 3번째 줄(index 2)부터 스크롤 시작
+      // 줄 높이가 대략 40px이므로, 3번째 줄이 화면 상단 근처에 오도록 고정
+      if (currentLineIndex >= 2) {
+        // 현재 줄의 top 위치에서 상단 여백(줄 2개 정도의 높이)을 뺀 지점으로 스크롤
+        // 이렇게 하면 현재 입력줄이 항상 화면 상단에서 3번째 위치 정도에 고정됨
+        nextScrollTop = targetTop - (targetHeight * 2);
+        
+        if (Math.abs(nextScrollTop - currentScroll) > 2) {
+          performSmoothScroll(Math.max(0, nextScrollTop));
+        }
+      } else {
+        // 1, 2번째 줄일 때는 스크롤을 0으로 유지
+        if (currentScroll > 5) performSmoothScroll(0);
       }
     } else {
       // PC: 기존의 안전 영역(Safe Zone) 방식 유지
@@ -99,7 +101,7 @@ export const useAutoScroll = ({
         performSmoothScroll(nextScrollTop);
       }
     }
-  }, [targetTop, targetHeight, isPaused, performSmoothScroll, containerRef]);
+  }, [targetTop, targetHeight, currentLineIndex, isPaused, performSmoothScroll, containerRef]);
 
   useEffect(() => {
     return () => {
