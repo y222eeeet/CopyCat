@@ -274,6 +274,9 @@ const TypingAreaV2: React.FC<Props> = ({
 
   const prevMistakeCount = useRef<number>(0);
   useEffect(() => {
+    // If already finished, don't trigger error sounds for the last-second state updates
+    if (isFinishedRef.current) return;
+    
     if (mistakes.size > prevMistakeCount.current) {
       playErrorSound();
     }
@@ -398,14 +401,23 @@ const TypingAreaV2: React.FC<Props> = ({
 
   useEffect(() => {
     if (isFinishedRef.current) return;
-    const currentStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
-    if (currentStats) onStatsUpdate(currentStats);
     
-    if (targetIdxReached >= content.length && isLastCharComplete && userInput.length > 0 && !isComposing) {
+    const isActuallyFinished = targetIdxReached >= content.length && isLastCharComplete && userInput.length > 0;
+
+    if (isActuallyFinished) {
       isFinishedRef.current = true;
       const finalStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length, Date.now());
-      if (finalStats) onComplete(finalStats);
+      if (finalStats) {
+        // Reduced from 300ms to 200ms for a tighter, more responsive feel
+        setTimeout(() => {
+          onComplete(finalStats);
+        }, 200);
+      }
+      return;
     }
+
+    const currentStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
+    if (currentStats) onStatsUpdate(currentStats);
   }, [targetIdxReached, isLastCharComplete, isComposing, calculateStats, onStatsUpdate, onComplete, content.length, userInput, mistakes.size]);
 
   return (
