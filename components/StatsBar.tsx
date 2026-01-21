@@ -50,9 +50,10 @@ const StatsBar: React.FC<Props> = ({ stats, language, isPaused, isTyping }) => {
         </div>
       </div>
 
+      {/* Linear transition ensures constant speed movement */}
       <div className={`w-full h-[2px] relative overflow-hidden mt-1 transition-colors ${isPaused ? 'bg-gray-100 dark:bg-gray-900' : 'bg-[#f1f1f1] dark:bg-gray-700'}`}>
         <div 
-          className={`absolute top-0 left-0 h-full transition-all duration-300 ease-out ${isPaused ? 'bg-gray-400 dark:bg-gray-600 opacity-30' : 'bg-black dark:bg-white opacity-100'}`}
+          className={`absolute top-0 left-0 h-full transition-all duration-[400ms] ease-linear ${isPaused ? 'bg-gray-400 dark:bg-gray-600 opacity-30' : 'bg-black dark:bg-white opacity-100'}`}
           style={{ width: `${progress}%` }}
         />
       </div>

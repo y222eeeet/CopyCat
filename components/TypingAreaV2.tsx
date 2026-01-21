@@ -121,7 +121,6 @@ const TypingAreaV2: React.FC<Props> = ({
     return count;
   }, [content]);
 
-  // Pre-calculate line structures and mapping
   const { preCalculatedLines, charToLineMap } = useMemo(() => {
     const lines = content.split('\n');
     const result: { line: string; lineOffset: number; length: number }[] = [];
@@ -355,11 +354,9 @@ const TypingAreaV2: React.FC<Props> = ({
 
     let speed = 0;
     if (session.language === Language.KOREAN) {
-      // 대한민국 표준 한글 타수 계산 (자모 단위)
       const totalStrokes = getKoreanStrokeCount(userInput);
       speed = (totalStrokes / seconds) * 60;
     } else {
-      // 영어 WPM 계산 (5글자당 1단어)
       speed = (userInput.length / 5) / (seconds / 60);
     }
     
@@ -370,47 +367,21 @@ const TypingAreaV2: React.FC<Props> = ({
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isFinishedRef.current || isPaused || isJumpingRef.current) return;
-    
     if (startTimeRef.current === null) startTimeRef.current = Date.now();
-    
     const newVal = e.target.value;
-    const oldLen = userInput.length;
-    const newLen = newVal.length;
-    
     setUserInput(newVal);
-
-    if (isMobile) {
-      if (!isComposing && newLen > oldLen) {
-        setKeystrokes(prev => prev + (newLen - oldLen));
-      }
-      
-      if (!isComposing) {
-        const last = newVal[newVal.length - 1];
-        if (last === ' ') playTypingSound(' ');
-        else if (last === '\n') playTypingSound('Enter');
-        else if (newLen < oldLen) {
-          playTypingSound('Backspace');
-        }
-      }
-    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isFinishedRef.current || isPaused) return;
-    
     if (startTimeRef.current === null) startTimeRef.current = Date.now();
-    
     if (isMobile) {
       if (e.key === 'Enter') {
         const ahead = targetIdxReached;
         if (content[ahead] !== '\n' && (ahead > 0 && content[ahead-1] !== '\n')) e.preventDefault();
       }
-      if (e.key === 'Backspace' || e.key === 'Delete') {
-        setKeystrokes(prev => prev + 1);
-      }
       return; 
     }
-
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
       while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
@@ -427,24 +398,16 @@ const TypingAreaV2: React.FC<Props> = ({
       if (e.key === 'Backspace' || e.key === 'Delete') playTypingSound('Backspace');
       else if (e.key.length === 1) playTypingSound(e.key);
     }
-
     if (!e.nativeEvent.isComposing && !['Control', 'Alt', 'Shift', 'Meta', 'CapsLock', 'Tab', ' ', 'Enter'].includes(e.key)) {
       setKeystrokes(prev => prev + 1);
     }
   };
 
   const handleCompStart = () => setIsComposing(true);
-  const handleCompEnd = () => {
-    setIsComposing(false);
-    if (isMobile) {
-      playTypingSound('KeyA');
-      setKeystrokes(prev => prev + 2);
-    }
-  };
+  const handleCompEnd = () => setIsComposing(false);
 
   useEffect(() => {
     if (isFinishedRef.current) return;
-    
     const finished = targetIdxReached >= content.length && isLastCharComplete && userInput.length > 0;
     if (finished) {
       isFinishedRef.current = true;
@@ -453,9 +416,9 @@ const TypingAreaV2: React.FC<Props> = ({
       if (st) setTimeout(() => onComplete(st), 200);
       return;
     }
-
     const now = Date.now();
-    const throttleTime = isMobile ? 400 : 300;
+    // Throttle reduced to match the linear animation frame for maximum smoothness
+    const throttleTime = isMobile ? 250 : 200;
     if (now - lastStatsUpdateTime.current > throttleTime) {
       const st = calculateStats(mistakes.size);
       if (st) {

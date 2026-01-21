@@ -34,6 +34,36 @@ const DEFAULT_SESSIONS_EN: TypingSession[] = [
     filename: 'The Great Gatsby',
     content: "In my younger and more vulnerable years my father gave me some advice that I've been turning over in my mind ever since. \"Whenever you feel like criticizing anyone,\" he told me, \"just remember that all the people in this world haven't had the advantages that you've had.\"",
     language: Language.ENGLISH
+  },
+  {
+    filename: 'To Kill a Mockingbird - Harper Lee',
+    content: "You never really understand a person until you consider things from his point of view... until you climb into his skin and walk around in it.",
+    language: Language.ENGLISH
+  },
+  {
+    filename: 'The Alchemist - Paulo Coelho',
+    content: "It's the possibility of having a dream come true that makes life interesting.",
+    language: Language.ENGLISH
+  },
+  {
+    filename: 'Walden - Henry David Thoreau',
+    content: "I went to the woods because I wished to live deliberately, to front only the essential facts of life, and see if I could not learn what it had to teach, and not, when I came to die, discover that I had not lived.",
+    language: Language.ENGLISH
+  },
+  {
+    filename: 'Invictus - William Ernest Henley',
+    content: "Out of the night that covers me,\nBlack as the pit from pole to pole,\nI thank whatever gods may be\nFor my unconquerable soul.",
+    language: Language.ENGLISH
+  },
+  {
+    filename: 'Commencement Address - Steve Jobs',
+    content: "You can't connect the dots looking forward; you can only connect them looking backward. So you have to trust that the dots will somehow connect in your future.",
+    language: Language.ENGLISH
+  },
+  {
+    filename: 'Letters to a Young Poet - Rilke',
+    content: "Be patient toward all that is unsolved in your heart and try to love the questions themselves, like locked rooms and like books that are now written in a very foreign tongue.",
+    language: Language.ENGLISH
   }
 ];
 
@@ -44,18 +74,63 @@ const DEFAULT_SESSIONS_KO: TypingSession[] = [
     language: Language.KOREAN
   },
   {
-    filename: '서시 - 윤동주',
-    content: "죽는 날까지 하늘을 우러러\n한 점 부끄럼이 없기를,\n잎새에 이는 바람에도\n나는 괴로워했다.\n별을 노래하는 마음으로\n모든 죽어가는 것을 사랑해야지\n그리고 나한테 주어진 길을\n걸어가야겠다.",
+    filename: '손톱깎이 - 왕구슬',
+    content: "누군가 내게\n“당신은 그를 얼마나 사랑하나요”\n하고 묻는다면\n나는 외면하며\n“손톱만큼요”라고 할 것이다\n\n하지만 돌아서서는\n잘라내도 잘라내도\n평생 자라나고야 마는\n내 손톱을 보고\n마음이 저려\n펑펑 울지도 모른다",
     language: Language.KOREAN
   },
   {
-    filename: '어린 왕자 중에서',
-    content: "세상에서 가장 어려운 일은 사람의 마음을 얻는 일이란다.\n각각의 얼굴만큼 각양각색의 마음이 있고,\n바람처럼 순식간에 변해버리는 것이 사람의 마음이기 때문이지.",
+    filename: '반쪼라기 자작 - 이탈로 칼비노',
+    content: "반면에 나는 완전히 열정의 한가운데 있으면서도 항상 부족함과 슬픔을 느꼈다. 때때로 한 인간은 자기 자신을 불완전하다고 생각하는데 그것은 그가 젊기 때문이다",
     language: Language.KOREAN
   },
   {
-    filename: '삶이 그대를 속일지라도 - 푸시킨',
-    content: "삶이 그대를 속일지라도\n슬퍼하거나 노여워하지 말라\n우울한 날들을 견디면\n믿으라, 기쁨의 날이 오리니.",
+    filename: '사막 - 오르텅스 블루',
+    content: "그 사막에서 그는\n너무도 외로워\n때로는 뒷걸음질로 걸었다\n자기 앞에 찍힌 발자국을 보려고",
+    language: Language.KOREAN
+  },
+  {
+    filename: '이런 시 - 이상',
+    content: "역사를 하노라고 땅을 파다가\n커다란 돌을 하나 끄집어 내어놓고 보니\n도무지 어디서 인가 본 듯한 생각이 들게 모양이 생겼는데\n목도들이 그것을 메고 나가더니\n어디다 갖다 버리고 온 모양이길래 쫓아나가 보니\n위험하기 짝이 없는 큰길가더라.\n\n그날 밤에 한 소나기 하였으니\n필시 그 돌이 깨끗이 씻겼을 터인데\n그 이튿날 가보니까 변괴로다 간데온데 없더라.\n어떤 돌이 와서 그 돌을 업어갔을까\n나는 참 이런 처량한 생각에서 아래와 같은 작문을 지었도다\n\n“내가 그다지 사랑하던 그대여\n내 한평생에 차마 그대를 잊을 수 없소이다\n내 차례에 못 올 사랑인 줄은 알면서도\n나 혼자는 꾸준히 생각하리라\n자, 그러면 내내 어여쁘소서.”\n\n어떤 돌이 내 얼굴을 물끄러미 치어다보는 것만 같아서\n이런 시는 그만 찢어 버리고 싶더라",
+    language: Language.KOREAN
+  },
+  {
+    filename: '이상, 금홍에게',
+    content: "나는 상처를 통해 인간이 성장한다고 믿지 않는다.\n어떤 사람들은 상처를 통해 성장하기도 하지만,\n사실 그들은 상처가 없이도 잘 자랐으리라 믿는다.\n나는 당신을 상처 없이 지켜주고 싶다.\n심지어 그대, 전혀 성장하지 못한대도 상관없다.",
+    language: Language.KOREAN
+  },
+  {
+    filename: '여동생 옥희 보아라 - 이상',
+    content: "이해 없는 세상에서\n나만은 언제라도 네 편인 것을 잊지 마라.",
+    language: Language.KOREAN
+  },
+  {
+    filename: '별 헤는 밤 - 윤동주',
+    content: "계절이 지나가는 하늘에는\n가을로 가득 차 있습니다.\n나를 아무 걱정도 없이\n가을 속의 별들을 다 헤일 듯합니다.\n\n가슴속에 하나 둘 새겨지는 별을\n이제 다 못 헤는 것은\n쉬이 아침이 오는 까닭이요,\n내일 밤이 남은 까닭이요,\n아직 나의 청춘이 다하지 않은 까닭입니다.",
+    language: Language.KOREAN
+  },
+  {
+    filename: '진달래꽃 - 김소월',
+    content: "나 보기가 역겨워\n가실 때에는\n말없이 고이 보내 드리오리다.\n\n영변에 약산\n진달래꽃\n아름 따다 가실 길에 뿌리오리다.",
+    language: Language.KOREAN
+  },
+  {
+    filename: '칼의 노래 - 김훈',
+    content: "버려진 섬마다 꽃이 피었다.\n꽃 피는 해안선은 끝없이 어지러웠다.\n볕은 차갑고 맑았다.\n바다에서 불어오는 겨울 바람이 옷깃으로 스며들었다.",
+    language: Language.KOREAN
+  },
+  {
+    filename: '박지원 소설전 - 박지원',
+    content: "덕이 있는 이에게는 사람이 모여들지.\n덕이 없을까 걱정해야지 사람이 없을까 걱정하겠는가?",
+    language: Language.KOREAN
+  },
+  {
+    filename: '섬 - 장 그르니에',
+    content: "저마다의 일생에는,\n특히 그 일생이 동터 오르는 여명기에는\n모든 것을 결정짓는 한순간이 있다",
+    language: Language.KOREAN
+  },
+  {
+    filename: '안과 겉·결혼·여름 - 알베르 카뮈',
+    content: "그때 나는 나 자신을 내맡김으로써\n사랑할 수 있었으니,\n마침내 나는 나 자신이 된 것이다.\n왜냐하면 우리를 우리 자신으로\n돌아오게 해주는 것은 사랑뿐이기 때문이다.",
     language: Language.KOREAN
   }
 ];
@@ -90,8 +165,6 @@ const getNextSessionFromPool = (lang: Language, currentContent?: string): Typing
     const backupIndex = nextIndex;
     nextIndex = pool.pop() ?? 0;
     pool.push(backupIndex); 
-  } else if (sessions[nextIndex]?.content === currentContent && pool.length === 0) {
-    nextIndex = (nextIndex + 1) % sessions.length;
   }
 
   localStorage.setItem(poolKey, JSON.stringify(pool));
@@ -295,7 +368,7 @@ const App: React.FC = () => {
     if (!isPaused) setIsTyping(false);
   };
 
-  const headerOpacity = (isTyping && !isPaused) ? 'opacity-20' : 'opacity-100';
+  const zenOpacity = (isTyping && !isPaused) ? 'opacity-20' : 'opacity-100';
 
   return (
     <div className={`flex flex-col h-screen transition-colors duration-300 overflow-hidden ${isDarkMode ? 'bg-[#121212] text-[#e0e0e0]' : 'bg-white text-[#333]'}`}>
@@ -317,8 +390,8 @@ const App: React.FC = () => {
       )}
 
       <main className="flex-1 min-h-0 flex flex-col max-w-6xl mx-auto w-full px-6 pt-6">
-        <div className={`flex flex-col gap-6 mb-4 transition-opacity duration-700 ${headerOpacity}`}>
-          <div className="flex justify-end items-center gap-4">
+        <div className="flex flex-col gap-6 mb-4">
+          <div className={`flex justify-end items-center gap-4 transition-opacity duration-700 ${zenOpacity}`}>
             <button onClick={handleUploadClick} className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-black'}`}>Upload</button>
             <button onClick={handleReset} className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-black'}`}>Reset</button>
             <div className={`h-3 w-[1px] ${isDarkMode ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
@@ -337,7 +410,9 @@ const App: React.FC = () => {
             </button>
           </div>
           <div className="flex justify-between items-center">
-            <h1 className={`text-[30px] font-normal tracking-tight truncate mr-4 transition-colors ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{session.filename}</h1>
+            <h1 className={`text-[30px] font-normal tracking-tight truncate mr-4 transition-colors ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+              {session.filename}
+            </h1>
             <button onClick={togglePause} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all text-[11px] font-bold uppercase tracking-widest ${isPaused ? (isDarkMode ? 'bg-gray-200 text-black' : 'bg-black text-white') : (isDarkMode ? 'bg-gray-800 text-gray-500 hover:text-gray-300' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black')}`}>
               {isPaused ? "Resume" : "Pause"}
             </button>
