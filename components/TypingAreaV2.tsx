@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffe
 import { TypingSession, PUNCT_SET, Stats, Language } from '../types';
 import { isJamoPrefix, decomposeHangul } from '../services/hangulUtils';
 import { useAutoScroll } from '../hooks/useAutoScroll';
-import { playTypingSound, playErrorSound } from '../services/soundService';
+import { playTypingSound, playErrorSound, playCompletionSound } from '../services/soundService';
 
 const jamoCache = new Map<string, string[]>();
 const getCachedDecomposition = (char: string) => {
@@ -21,51 +21,62 @@ interface UserCharData {
   isMistake: boolean;
 }
 
+interface LineData {
+  userChars: (UserCharData | null)[];
+  activated: boolean[]; // lineOffset 기준 로컬 인덱스
+}
+
 const MemoizedLine = React.memo(({ 
   line, 
   lineOffset, 
-  targetToUserMap,
-  activatedPunct, 
-  composingIdx, 
+  userData, // LineData
+  composingLocalIdx,
   isComposing,
   isDarkMode
-}: any) => {
+}: {
+  line: string;
+  lineOffset: number;
+  userData: LineData;
+  composingLocalIdx: number;
+  isComposing: boolean;
+  isDarkMode: boolean;
+}) => {
+  const chars = line.split('');
+  
   return (
     <div className="min-h-[40px] relative">
+      {/* Ghost Layer */}
       <div className="absolute top-0 left-0 w-full pointer-events-none">
-        {line.split('').map((char: string, cIdx: number) => {
-          const absIdx = lineOffset + cIdx;
-          const isBeingComposed = absIdx === composingIdx && isComposing;
+        {chars.map((char, cIdx) => {
+          const isBeingComposed = cIdx === composingLocalIdx && isComposing;
+          const isActivated = userData.activated[cIdx];
+          const hasUserInput = !!userData.userChars[cIdx];
           
           let color = isDarkMode ? '#555555' : '#E5E7EB'; 
-          if (isBeingComposed) {
+          if (isBeingComposed || hasUserInput) {
             color = 'transparent';
-          } else if (targetToUserMap.has(absIdx)) {
-            color = 'transparent';
-          } else if (activatedPunct.has(absIdx)) {
+          } else if (isActivated) {
             color = isDarkMode ? '#bbbbbb' : '#333333';
           }
           
-          return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }}>{char}</span>;
+          return <span id={`char-ghost-${lineOffset + cIdx}`} key={cIdx} style={{ color }}>{char}</span>;
         })}
       </div>
+      {/* User Input Layer */}
       <div className="relative w-full z-10 pointer-events-none">
-        {line.split('').map((targetChar: string, cIdx: number) => {
-          const absIdx = lineOffset + cIdx;
-          const userData = targetToUserMap.get(absIdx) as UserCharData | undefined;
+        {chars.map((_, cIdx) => {
+          const uData = userData.userChars[cIdx];
+          if (!uData) return <span key={cIdx} className="invisible">{chars[cIdx]}</span>;
+          if (PUNCT_SET.includes(uData.char)) return <span key={cIdx} className="invisible">{uData.char}</span>;
           
-          if (userData) {
-            if (PUNCT_SET.includes(userData.char)) return <span key={absIdx} className="invisible">{userData.char}</span>;
-            return (
-              <span 
-                key={absIdx} 
-                className={`${userData.isMistake ? 'text-red-500 font-normal' : (isDarkMode ? 'text-[#e0e0e0]' : 'text-black')}`}
-              >
-                {userData.char}
-              </span>
-            );
-          }
-          return <span key={absIdx} className="invisible">{targetChar}</span>;
+          return (
+            <span 
+              key={cIdx} 
+              className={`${uData.isMistake ? 'text-red-500 font-normal' : (isDarkMode ? 'text-[#e0e0e0]' : 'text-black')}`}
+            >
+              {uData.char}
+            </span>
+          );
         })}
       </div>
     </div>
@@ -102,6 +113,7 @@ const TypingAreaV2: React.FC<Props> = ({
   const isJumpingRef = useRef(false); 
   const isFinishedRef = useRef(false);
   const prevMistakeCount = useRef<number>(0);
+  const lastStatsUpdateTime = useRef<number>(0);
   
   const content = session.content;
   const totalCount = useMemo(() => {
@@ -114,7 +126,7 @@ const TypingAreaV2: React.FC<Props> = ({
     const lines = content.split('\n');
     let offset = 0;
     return lines.map(line => {
-      const data = { line, lineOffset: offset };
+      const data = { line, lineOffset: offset, length: line.length };
       offset += line.length + 1;
       return data;
     });
@@ -150,22 +162,40 @@ const TypingAreaV2: React.FC<Props> = ({
     let targetIdx = 0;
     let isLastCharComplete = false;
     let composingTargetIdx = -1;
-    const targetToUserMap = new Map<number, UserCharData>();
-    const activated = new Set<number>();
+    
+    // 성능을 위해 Map 대신 flat array 사용 고려 가능하나, 
+    // 여기서는 렌더링 최적화를 위해 라인별로 데이터를 쪼개서 저장함
+    const lineDataList: LineData[] = preCalculatedLines.map(l => ({
+      userChars: new Array(l.length).fill(null),
+      activated: new Array(l.length).fill(false)
+    }));
+    
     const mistakes = new Set<number>();
 
     const skipCurrentPunct = () => {
         while (targetIdx < content.length && PUNCT_SET.includes(content[targetIdx])) {
-            activated.add(targetIdx);
+            const lineIdx = getLineIndex(targetIdx);
+            if (lineIdx !== -1) {
+              const localIdx = targetIdx - preCalculatedLines[lineIdx].lineOffset;
+              lineDataList[lineIdx].activated[localIdx] = true;
+            }
             targetIdx++;
         }
+    };
+
+    const getLineIndex = (idx: number) => {
+      // 이진 탐색으로 최적화 가능하지만 라인 수가 아주 많지 않으면 findIndex도 충분
+      return preCalculatedLines.findIndex(l => idx >= l.lineOffset && idx < l.lineOffset + l.length + 1);
     };
 
     const activateTrailingPunctInWord = (startFrom: number) => {
         let search = startFrom;
         while (search < content.length && content[search] !== ' ' && content[search] !== '\n') {
             if (PUNCT_SET.includes(content[search])) {
-                activated.add(search);
+              const lIdx = getLineIndex(search);
+              if (lIdx !== -1) {
+                lineDataList[lIdx].activated[search - preCalculatedLines[lIdx].lineOffset] = true;
+              }
             }
             search++;
         }
@@ -175,16 +205,16 @@ const TypingAreaV2: React.FC<Props> = ({
 
     const isKorean = session.language === Language.KOREAN;
     const isEnglish = session.language === Language.ENGLISH;
-
     const inputLen = userInput.length;
+
     for (let i = 0; i < inputLen; i++) {
       const userChar = userInput[i];
       const isLastIndex = i === inputLen - 1;
-      // 모바일에서는 조합 여부와 상관없이 마지막 인덱스면 "입력 중"으로 간주하여 오타 판정 유보
       const isCurrentlyInputting = isLastIndex && (isMobile || isComposing);
 
       while (targetIdx < content.length && PUNCT_SET.includes(content[targetIdx])) {
-          activated.add(targetIdx);
+          const lIdx = getLineIndex(targetIdx);
+          if (lIdx !== -1) lineDataList[lIdx].activated[targetIdx - preCalculatedLines[lIdx].lineOffset] = true;
           targetIdx++;
       }
 
@@ -194,7 +224,10 @@ const TypingAreaV2: React.FC<Props> = ({
         
         if (ahead < content.length && content[ahead] === '\n') {
           while (targetIdx < ahead) {
-            if (PUNCT_SET.includes(content[targetIdx])) activated.add(targetIdx);
+            if (PUNCT_SET.includes(content[targetIdx])) {
+              const lIdx = getLineIndex(targetIdx);
+              if (lIdx !== -1) lineDataList[lIdx].activated[targetIdx - preCalculatedLines[lIdx].lineOffset] = true;
+            }
             targetIdx++;
           }
           while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
@@ -209,7 +242,8 @@ const TypingAreaV2: React.FC<Props> = ({
                 if (isLastIndex) isLastCharComplete = true;
                 continue;
             } else {
-                targetToUserMap.set(targetIdx, { char: userChar, isMistake: true });
+                const lIdx = getLineIndex(targetIdx);
+                if (lIdx !== -1) lineDataList[lIdx].userChars[targetIdx - preCalculatedLines[lIdx].lineOffset] = { char: userChar, isMistake: true };
                 mistakes.add(targetIdx);
                 targetIdx++; 
                 if (isLastIndex) isLastCharComplete = true;
@@ -232,40 +266,38 @@ const TypingAreaV2: React.FC<Props> = ({
       let isMistake = false;
       if (isKorean) {
         if (isCurrentlyInputting) {
-          // 모바일: 입력 중인 글자는 무조건 오타가 아닌 것으로 표시 (유보)
           isMistake = isMobile ? false : !isCorrect;
         } else {
-          // 다음 글자로 넘어갔을 때만 실제 글자 일치 여부 판정
           isMistake = userChar !== targetChar;
         }
       } else {
         isMistake = !isCorrect;
       }
 
-      if (!isMistake) {
+      const lIdx = getLineIndex(targetIdx);
+      if (lIdx !== -1) {
         let displayChar = userChar;
         if (isEnglish) {
           const isTargetUpper = targetChar === targetChar.toUpperCase() && targetChar !== targetChar.toLowerCase();
-          if (isTargetUpper) displayChar = targetChar;
+          if (isTargetUpper && !isMistake) displayChar = targetChar;
         }
-
-        if (isCurrentlyInputting) composingTargetIdx = targetIdx;
-        targetToUserMap.set(targetIdx, { char: displayChar, isMistake: false });
         
-        activateTrailingPunctInWord(targetIdx);
+        lineDataList[lIdx].userChars[targetIdx - preCalculatedLines[lIdx].lineOffset] = { char: displayChar, isMistake };
+        if (isMistake) mistakes.add(targetIdx);
+        if (isCurrentlyInputting) composingTargetIdx = targetIdx;
+      }
 
+      if (!isMistake) {
+        activateTrailingPunctInWord(targetIdx);
         const isComplete = isKorean ? isSufficientlyCompleted(userChar, targetChar) : true;
         const lastCommitted = isBodyChar(targetChar) ? isComplete : !isCurrentlyInputting;
         targetIdx++;
-        
         if (lastCommitted) {
             skipCurrentPunct();
             if (content[targetIdx-1] === '\n') skipCurrentPunct();
         }
         if (isLastIndex) isLastCharComplete = lastCommitted;
       } else { 
-        targetToUserMap.set(targetIdx, { char: userChar, isMistake: true });
-        mistakes.add(targetIdx);
         targetIdx++; 
         if (isLastIndex) isLastCharComplete = true;
       }
@@ -273,31 +305,25 @@ const TypingAreaV2: React.FC<Props> = ({
 
     skipCurrentPunct();
 
-    return { targetToUserMap, activated, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached: targetIdx };
-  }, [userInput, isComposing, content, isSufficientlyCompleted, isBodyChar, session.language]);
+    return { lineDataList, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached: targetIdx };
+  }, [userInput, isComposing, content, isSufficientlyCompleted, isBodyChar, session.language, preCalculatedLines]);
 
-  const { targetToUserMap, activated, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached } = alignedState;
+  const { lineDataList, mistakes, composingTargetIdx, isLastCharComplete, targetIdxReached } = alignedState;
 
-  // 오타 효과음 제어: 확정된 오타에 대해서만 소리 발생
+  // 현재 커서가 있는 라인 인덱스 찾기
+  const currentLineIndex = useMemo(() => {
+    const idx = preCalculatedLines.findIndex(l => targetIdxReached >= l.lineOffset && targetIdxReached < l.lineOffset + l.length + 1);
+    return idx === -1 ? preCalculatedLines.length - 1 : idx;
+  }, [targetIdxReached, preCalculatedLines]);
+
+  // 오타 효과음
   useEffect(() => {
     if (isFinishedRef.current || isPaused) return;
-    
-    // 모바일인 경우 현재 입력 중인 위치의 오타 여부는 효과음 로직에서 제외
-    let effectiveMistakeCount = mistakes.size;
-    if (isMobile && mistakes.has(targetIdxReached - 1)) {
-        // 루프 구조상 mistakes에 추가되었더라도, targetIdxReached - 1 이 현재 입력 중인 글자라면 소리를 내지 않음
-        // (단, isLastIndex가 true였던 마지막 루프에서 isMistake가 true로 결정된 경우에만 해당)
-    }
-
     if (mistakes.size > prevMistakeCount.current) {
-      // 모바일에서 조합 중인 글자의 prefix 불일치 소리를 막기 위해 
-      // isComposing 중일 때는 소리를 더 엄격하게 제한
-      if (!(isMobile && isComposing)) {
-        playErrorSound();
-      }
+      if (!(isMobile && isComposing)) playErrorSound();
     }
     prevMistakeCount.current = mistakes.size;
-  }, [mistakes.size, isComposing, isPaused, targetIdxReached]);
+  }, [mistakes.size, isComposing, isPaused]);
 
   const updateCursorPosition = useCallback(() => {
     const parentEl = layersRef.current;
@@ -305,7 +331,6 @@ const TypingAreaV2: React.FC<Props> = ({
 
     const idx = targetIdxReached;
     const isAtEnd = idx >= content.length;
-    
     let measureIdx = idx;
     let useRight = false;
 
@@ -318,12 +343,9 @@ const TypingAreaV2: React.FC<Props> = ({
     }
 
     let charEl = document.getElementById(`char-ghost-${measureIdx}`);
-    
     if (!charEl && !isAtEnd) {
       let fallbackIdx = idx;
-      while (fallbackIdx < content.length && !document.getElementById(`char-ghost-${fallbackIdx}`)) {
-        fallbackIdx++;
-      }
+      while (fallbackIdx < content.length && !document.getElementById(`char-ghost-${fallbackIdx}`)) fallbackIdx++;
       charEl = document.getElementById(`char-ghost-${fallbackIdx}`);
       useRight = false;
     }
@@ -331,24 +353,18 @@ const TypingAreaV2: React.FC<Props> = ({
     if (charEl) {
       const rect = charEl.getBoundingClientRect();
       const parentRect = parentEl.getBoundingClientRect();
-      
       const top = rect.top - parentRect.top;
       const left = useRight ? (rect.right - parentRect.left) : (rect.left - parentRect.left);
       
       setCursorPos({ top, left, height: rect.height });
-      
-      if (!isReady) {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => setIsReady(true));
-        });
-      }
+      if (!isReady) requestAnimationFrame(() => setIsReady(true));
     }
   }, [targetIdxReached, content, isReady]);
 
   useLayoutEffect(updateCursorPosition, [updateCursorPosition]);
   useAutoScroll({ containerRef, targetTop: cursorPos.top, targetHeight: cursorPos.height, isPaused: isFinishedRef.current || isPaused });
 
-  const calculateStats = useCallback((currentMistakesCount: number, currentTypedCount: number, forcedEndTime?: number) => {
+  const calculateStats = useCallback((currentMistakesCount: number, forcedEndTime?: number) => {
     let elapsedMs = accumulatedTimeRef.current;
     if (startTimeRef.current !== null) elapsedMs += (forcedEndTime || Date.now()) - startTimeRef.current;
     const elapsedSeconds = elapsedMs / 1000;
@@ -357,34 +373,43 @@ const TypingAreaV2: React.FC<Props> = ({
     let speed = 0;
     if (session.language === Language.KOREAN) {
       let jamoCount = 0;
-      targetToUserMap.forEach((data, tIdx) => {
-          if (!data.isMistake && content[tIdx] !== '\n') {
-              jamoCount += (data.char === ' ' ? 1 : getCachedDecomposition(data.char).length);
+      // 전체 라인 데이터를 순회하여 정확한 자모수 계산 (무거운 연산이므로 스로틀링 필요)
+      for (let i = 0; i < lineDataList.length; i++) {
+        const uChars = lineDataList[i].userChars;
+        for (let j = 0; j < uChars.length; j++) {
+          const ud = uChars[j];
+          if (ud && !ud.isMistake) {
+            jamoCount += (ud.char === ' ' ? 1 : getCachedDecomposition(ud.char).length);
           }
-      });
+        }
+      }
       speed = (jamoCount / elapsedSeconds) * 60;
     } else {
       let correctLength = 0;
-      targetToUserMap.forEach((data, tIdx) => { if (!data.isMistake && content[tIdx] !== '\n') correctLength++; });
+      for (let i = 0; i < lineDataList.length; i++) {
+        const uChars = lineDataList[i].userChars;
+        for (let j = 0; j < uChars.length; j++) {
+          const ud = uChars[j];
+          if (ud && !ud.isMistake) correctLength++;
+        }
+      }
       speed = (correctLength / 5) / (elapsedSeconds / 60);
     }
     
     let addressedChars = 0;
-    for (let i = 0; i < targetIdxReached; i++) {
-        if (content[i] !== '\n') addressedChars++;
-    }
+    for (let i = 0; i < targetIdxReached; i++) if (content[i] !== '\n') addressedChars++;
     const finalTypedCount = Math.min(addressedChars, totalCount);
-
-    const accuracy = currentTypedCount === 0 ? 100 : Math.max(0, 100 - (currentMistakesCount / currentTypedCount) * 100);
+    // 정확도 계산 시userInput의 실제 길이를 사용하지 않고 targetIdxReached 기준 오차율 계산
+    const accuracy = targetIdxReached === 0 ? 100 : Math.max(0, 100 - (currentMistakesCount / targetIdxReached) * 100);
+    
     return { speed: Math.min(speed, 2500), accuracy, typedCount: finalTypedCount, totalCount, elapsedTime: elapsedSeconds };
-  }, [session.language, totalCount, targetToUserMap, content, targetIdxReached]);
+  }, [session.language, totalCount, lineDataList, content, targetIdxReached]);
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isFinishedRef.current || isPaused || isJumpingRef.current) return;
     const value = e.target.value;
     setUserInput(value);
 
-    // 모바일 특수 키 사운드
     if (isMobile && !isComposing) {
       const lastChar = value[value.length - 1];
       if (lastChar === ' ') playTypingSound(' ');
@@ -400,9 +425,7 @@ const TypingAreaV2: React.FC<Props> = ({
     if (isMobile) {
       if (e.key === 'Enter') {
         const ahead = targetIdxReached;
-        if (content[ahead] !== '\n' && content[ahead-1] !== '\n') {
-          e.preventDefault();
-        }
+        if (content[ahead] !== '\n' && content[ahead-1] !== '\n') e.preventDefault();
       }
       return;
     }
@@ -410,7 +433,6 @@ const TypingAreaV2: React.FC<Props> = ({
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
       while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
-      
       if (ahead < content.length && content[ahead] === '\n') {
         playTypingSound('Enter');
         e.preventDefault();
@@ -436,8 +458,7 @@ const TypingAreaV2: React.FC<Props> = ({
   };
 
   const handleCompositionStart = () => setIsComposing(true);
-  
-  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+  const handleCompositionEnd = () => {
     setIsComposing(false);
     if (isMobile) {
       playTypingSound('KeyA');
@@ -447,26 +468,33 @@ const TypingAreaV2: React.FC<Props> = ({
 
   useEffect(() => {
     if (isFinishedRef.current) return;
-    
     const isActuallyFinished = targetIdxReached >= content.length && isLastCharComplete && userInput.length > 0;
 
     if (isActuallyFinished) {
       isFinishedRef.current = true;
-      const finalStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length, Date.now());
-      if (finalStats) {
-        setTimeout(() => {
-          onComplete(finalStats);
-        }, 200);
-      }
+      playCompletionSound();
+      const finalStats = calculateStats(mistakes.size, Date.now());
+      if (finalStats) setTimeout(() => onComplete(finalStats), 200);
       return;
     }
 
-    // 모바일은 조합 종료 시에만 통계 업데이트 (성능 향상)
-    if (!isMobile || !isComposing) {
-        const currentStats = calculateStats(mistakes.size, userInput.replace(/\n/g, '').length);
-        if (currentStats) onStatsUpdate(currentStats);
+    // 모바일 성능 최적화: 통계 업데이트 주기 제한 (스로틀링)
+    const now = Date.now();
+    if (!isMobile || !isComposing || (now - lastStatsUpdateTime.current > 250)) {
+        const currentStats = calculateStats(mistakes.size);
+        if (currentStats) {
+          onStatsUpdate(currentStats);
+          lastStatsUpdateTime.current = now;
+        }
     }
   }, [targetIdxReached, isLastCharComplete, isComposing, calculateStats, onStatsUpdate, onComplete, content.length, userInput, mistakes.size]);
+
+  // Windowing: 현재 줄 기준 위로 15줄, 아래로 25줄만 렌더링
+  const renderRange = useMemo(() => {
+    const start = Math.max(0, currentLineIndex - 15);
+    const end = Math.min(preCalculatedLines.length, currentLineIndex + 25);
+    return { start, end };
+  }, [currentLineIndex, preCalculatedLines.length]);
 
   return (
     <div className="h-full min-h-0 flex flex-col relative" onClick={() => !isPaused && hiddenInputRef.current?.focus()}>
@@ -478,6 +506,7 @@ const TypingAreaV2: React.FC<Props> = ({
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-4">
         <div className="relative min-h-full pb-[70vh]">
           <div ref={layersRef} className="relative w-full text-[25px] leading-[40px] tracking-[-0.02em] whitespace-pre-wrap break-keep text-left select-none outline-none font-light">
+            {/* Cursor */}
             <div 
               className={`absolute w-[2px] ${isDarkMode ? 'bg-white/60' : 'bg-black/60'} z-20 
                 ${isReady ? 'transition-[left,top] duration-[250ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] opacity-100' : 'opacity-0'}`} 
@@ -488,18 +517,30 @@ const TypingAreaV2: React.FC<Props> = ({
                 visibility: (isFinishedRef.current || !isReady || isPaused) ? 'hidden' : 'visible' 
               }} 
             />
-            {preCalculatedLines.map(({ line, lineOffset }, lIdx) => (
-              <MemoizedLine 
-                key={lIdx} 
-                line={line} 
-                lineOffset={lineOffset} 
-                targetToUserMap={targetToUserMap} 
-                activatedPunct={activated} 
-                composingIdx={composingTargetIdx} 
-                isComposing={isComposing} 
-                isDarkMode={isDarkMode}
-              />
-            ))}
+            
+            {/* Spacers & Lines (Windowing) */}
+            {preCalculatedLines.slice(0, renderRange.start).map((_, i) => <div key={`spacer-up-${i}`} style={{ height: '40px' }} />)}
+            
+            {preCalculatedLines.slice(renderRange.start, renderRange.end).map((lineData, i) => {
+              const actualIdx = renderRange.start + i;
+              const composingLocalIdx = (composingTargetIdx >= lineData.lineOffset && composingTargetIdx < lineData.lineOffset + lineData.length)
+                ? composingTargetIdx - lineData.lineOffset 
+                : -1;
+
+              return (
+                <MemoizedLine 
+                  key={actualIdx}
+                  line={lineData.line}
+                  lineOffset={lineData.lineOffset}
+                  userData={lineDataList[actualIdx]}
+                  composingLocalIdx={composingLocalIdx}
+                  isComposing={isComposing}
+                  isDarkMode={isDarkMode}
+                />
+              );
+            })}
+
+            {preCalculatedLines.slice(renderRange.end).map((_, i) => <div key={`spacer-down-${i}`} style={{ height: '40px' }} />)}
           </div>
         </div>
       </div>

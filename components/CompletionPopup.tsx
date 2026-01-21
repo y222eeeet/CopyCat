@@ -1,7 +1,6 @@
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Stats, Language } from '../types';
-import { playCompletionSound } from '../services/soundService';
 
 interface Props {
   stats: Stats;
@@ -11,10 +10,6 @@ interface Props {
 }
 
 const CompletionPopup: React.FC<Props> = ({ stats, language, onNext, onClose }) => {
-  useEffect(() => {
-    playCompletionSound();
-  }, []);
-
   const handleNext = (e: React.MouseEvent) => {
     e.stopPropagation();
     onNext();
