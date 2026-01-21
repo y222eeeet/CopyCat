@@ -13,28 +13,26 @@ const StatsBar: React.FC<Props> = ({ stats, language, isPaused }) => {
 
   return (
     <div className="w-full select-none flex flex-col gap-0.5">
-      {/* 모바일 Line 3: Speed & Accuracy (Left Aligned) */}
       <div className="flex justify-start gap-8 items-end">
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[10px] font-bold text-[#D1D5DB] uppercase tracking-widest">Speed</span>
-          <span className={`text-xl font-bold ${isPaused ? 'text-gray-300' : 'text-black'}`}>
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>Speed</span>
+          <span className={`text-xl font-bold transition-colors ${isPaused ? 'text-gray-400 dark:text-gray-600' : 'text-black dark:text-white'}`}>
             {Math.round(stats.speed)}
           </span>
-          <span className="text-[10px] font-bold text-[#D1D5DB] uppercase tracking-widest">
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>
             {language === Language.KOREAN ? '타/분' : 'WPM'}
           </span>
         </div>
         
         <div className="flex items-baseline gap-1.5">
-          <span className="text-[10px] font-bold text-[#D1D5DB] uppercase tracking-widest">Accuracy</span>
-          <span className={`text-xl font-bold ${isPaused ? 'text-gray-300' : 'text-black'}`}>
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>Accuracy</span>
+          <span className={`text-xl font-bold transition-colors ${isPaused ? 'text-gray-400 dark:text-gray-600' : 'text-black dark:text-white'}`}>
             {Math.round(stats.accuracy)}
           </span>
-          <span className="text-[10px] font-bold text-[#D1D5DB] uppercase tracking-widest">%</span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>%</span>
         </div>
       </div>
 
-      {/* 모바일 Line 4: Counts & Paused Indicator */}
       <div className="flex justify-between items-baseline">
         <div className="flex items-center">
           {isPaused && (
@@ -44,16 +42,15 @@ const StatsBar: React.FC<Props> = ({ stats, language, isPaused }) => {
           )}
         </div>
         <div className="flex items-baseline">
-          <span className={`text-xl font-bold ${isPaused ? 'text-gray-300' : 'text-black'}`}>{stats.typedCount}</span>
-          <span className="text-xl font-bold text-[#D1D5DB] mx-1.5">/</span>
-          <span className="text-xl font-bold text-[#D1D5DB]">{stats.totalCount}</span>
+          <span className={`text-xl font-bold transition-colors ${isPaused ? 'text-gray-400 dark:text-gray-600' : 'text-black dark:text-white'}`}>{stats.typedCount}</span>
+          <span className="text-xl font-bold text-[#D1D5DB] dark:text-gray-700 mx-1.5">/</span>
+          <span className="text-xl font-bold text-[#D1D5DB] dark:text-gray-700">{stats.totalCount}</span>
         </div>
       </div>
 
-      {/* Progress Line */}
-      <div className="w-full h-[2px] bg-[#f1f1f1] relative overflow-hidden mt-1">
+      <div className={`w-full h-[2px] relative overflow-hidden mt-1 transition-colors ${isPaused ? 'bg-gray-100 dark:bg-gray-900' : 'bg-[#f1f1f1] dark:bg-gray-700'}`}>
         <div 
-          className={`absolute top-0 left-0 h-full bg-black transition-all duration-300 ease-out ${isPaused ? 'opacity-30' : 'opacity-100'}`}
+          className={`absolute top-0 left-0 h-full transition-all duration-300 ease-out ${isPaused ? 'bg-gray-400 dark:bg-gray-600 opacity-30' : 'bg-black dark:bg-white opacity-100'}`}
           style={{ width: `${progress}%` }}
         />
       </div>

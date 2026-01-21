@@ -10,6 +10,7 @@ declare const mammoth: any;
 
 const STORAGE_KEY = 'typing_works_session_v2';
 const SETTINGS_KEY = 'typing_works_settings';
+const THEME_KEY = 'typing_works_theme';
 const SHUFFLE_KEY_EN = 'typing_works_shuffle_pool_en_v2';
 const SHUFFLE_KEY_KO = 'typing_works_shuffle_pool_ko_v2';
 
@@ -75,7 +76,6 @@ const getNextSessionFromPool = (lang: Language, currentContent?: string): Typing
     }
   }
 
-  // If pool is empty or corrupted, refill and shuffle
   if (pool.length === 0) {
     pool = Array.from({ length: sessions.length }, (_, i) => i);
     for (let i = pool.length - 1; i > 0; i--) {
@@ -86,11 +86,10 @@ const getNextSessionFromPool = (lang: Language, currentContent?: string): Typing
 
   let nextIndex = pool.pop() ?? 0;
   
-  // Try to avoid showing the exact same content consecutively if there are options
   if (sessions[nextIndex]?.content === currentContent && pool.length > 0) {
     const backupIndex = nextIndex;
     nextIndex = pool.pop() ?? 0;
-    pool.push(backupIndex); // Put the old one back to be used later
+    pool.push(backupIndex); 
   }
 
   localStorage.setItem(poolKey, JSON.stringify(pool));
@@ -108,6 +107,16 @@ const App: React.FC = () => {
       return { rememberProgress: true };
     }
   });
+
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      return saved === 'dark';
+    } catch {
+      return false;
+    }
+  });
+
   const [showSettings, setShowSettings] = useState(false);
 
   const [session, setSession] = useState<TypingSession>(() => {
@@ -148,6 +157,15 @@ const App: React.FC = () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [settings]);
 
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, isDarkMode ? 'dark' : 'light');
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
+
   const saveSessionState = useCallback((history: string[], ks: number, accTime: number) => {
     if (!settings.rememberProgress) return;
     const data: SavedSession = {
@@ -169,6 +187,8 @@ const App: React.FC = () => {
     const nextSession = getNextSessionFromPool(nextLang);
     handleResetForNewSession(nextSession);
   };
+
+  const toggleDarkMode = () => setIsDarkMode(prev => !prev);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -264,20 +284,20 @@ const App: React.FC = () => {
   const togglePause = () => setIsPaused(prev => !prev);
 
   return (
-    <div className="flex flex-col h-screen bg-white overflow-hidden text-[#333]">
+    <div className={`flex flex-col h-screen transition-colors duration-300 overflow-hidden ${isDarkMode ? 'bg-[#121212] text-[#e0e0e0]' : 'bg-white text-[#333]'}`}>
       <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".txt,.docx" />
 
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl border border-gray-100">
-            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-6">Settings</h3>
+          <div className={`${isDarkMode ? 'bg-[#1e1e1e] border-gray-800' : 'bg-white border-gray-100'} rounded-2xl w-full max-w-sm p-6 shadow-xl border`}>
+            <h3 className={`text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-6`}>Settings</h3>
             <div className="flex items-center justify-between mb-8">
-              <span className="text-sm font-medium text-gray-700">Remember progress</span>
-              <button onClick={() => setSettings(s => ({ ...s, rememberProgress: !s.rememberProgress }))} className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.rememberProgress ? 'bg-black' : 'bg-gray-200'}`}>
+              <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Remember progress</span>
+              <button onClick={() => setSettings(s => ({ ...s, rememberProgress: !s.rememberProgress }))} className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${settings.rememberProgress ? (isDarkMode ? 'bg-gray-600' : 'bg-black') : 'bg-gray-200'}`}>
                 <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${settings.rememberProgress ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
-            <button onClick={() => setShowSettings(false)} className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200">Close</button>
+            <button onClick={() => setShowSettings(false)} className={`w-full py-3 rounded-xl font-bold transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Close</button>
           </div>
         </div>
       )}
@@ -285,19 +305,26 @@ const App: React.FC = () => {
       <main className="flex-1 min-h-0 flex flex-col max-w-6xl mx-auto w-full px-6 pt-6">
         <div className="flex flex-col gap-6 mb-4">
           <div className="flex justify-end items-center gap-4">
-            <button onClick={handleUploadClick} className="text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-black">Upload</button>
-            <button onClick={handleReset} className="text-[11px] font-bold text-gray-400 uppercase tracking-widest hover:text-black">Reset</button>
-            <div className="h-3 w-[1px] bg-gray-200"></div>
-            <button onClick={() => setShowSettings(true)} className="text-gray-300 hover:text-gray-500">
+            <button onClick={handleUploadClick} className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-black'}`}>Upload</button>
+            <button onClick={handleReset} className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-black'}`}>Reset</button>
+            <div className={`h-3 w-[1px] ${isDarkMode ? 'bg-gray-800' : 'bg-gray-200'}`}></div>
+            <button onClick={() => setShowSettings(true)} className={`transition-colors ${isDarkMode ? 'text-gray-600 hover:text-gray-400' : 'text-gray-300 hover:text-gray-500'}`}>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
-            <button onClick={handleToggleLanguage} className="text-gray-400 hover:text-black">
+            <button onClick={handleToggleLanguage} className={`transition-colors ${isDarkMode ? 'text-gray-600 hover:text-gray-400' : 'text-gray-400 hover:text-black'}`}>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
+            </button>
+            <button onClick={toggleDarkMode} className={`transition-colors ${isDarkMode ? 'text-gray-600 hover:text-yellow-400' : 'text-gray-400 hover:text-black'}`}>
+              {isDarkMode ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              )}
             </button>
           </div>
           <div className="flex justify-between items-center">
-            <h1 className="text-xl font-bold text-gray-800 tracking-tight truncate mr-4">{session.filename}</h1>
-            <button onClick={togglePause} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all text-[11px] font-bold uppercase tracking-widest ${isPaused ? 'bg-black text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black'}`}>
+            <h1 className={`text-xl font-bold tracking-tight truncate mr-4 transition-colors ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{session.filename}</h1>
+            <button onClick={togglePause} className={`flex items-center gap-2 px-3 py-1 rounded-full transition-all text-[11px] font-bold uppercase tracking-widest ${isPaused ? (isDarkMode ? 'bg-gray-200 text-black' : 'bg-black text-white') : (isDarkMode ? 'bg-gray-800 text-gray-500 hover:text-gray-300' : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black')}`}>
               {isPaused ? "Resume" : "Pause"}
             </button>
           </div>
@@ -308,6 +335,7 @@ const App: React.FC = () => {
             key={`${resetKey}-${session.filename}`}
             session={session} 
             isPaused={isPaused}
+            isDarkMode={isDarkMode}
             initialHistory={initialData.history}
             initialKeystrokes={initialData.keystrokes}
             initialAccumulatedTime={initialData.time}

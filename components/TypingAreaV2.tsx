@@ -25,7 +25,8 @@ const MemoizedLine = React.memo(({
   targetToUserMap,
   activatedPunct, 
   composingIdx, 
-  isComposing 
+  isComposing,
+  isDarkMode
 }: any) => {
   return (
     <div className="min-h-[1.6em] relative">
@@ -34,16 +35,16 @@ const MemoizedLine = React.memo(({
           const absIdx = lineOffset + cIdx;
           const isBeingComposed = absIdx === composingIdx && isComposing;
           
-          let color = '#E5E7EB'; 
+          let color = isDarkMode ? '#555555' : '#E5E7EB'; 
           if (isBeingComposed) {
             color = 'transparent';
           } else if (targetToUserMap.has(absIdx)) {
             color = 'transparent';
           } else if (activatedPunct.has(absIdx)) {
-            color = '#333333';
+            color = isDarkMode ? '#bbbbbb' : '#333333';
           }
           
-          return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }}>{char}</span>;
+          return <span id={`char-ghost-${absIdx}`} key={absIdx} style={{ color }} className="transition-colors duration-300">{char}</span>;
         })}
       </div>
       <div className="relative w-full z-10 pointer-events-none">
@@ -53,7 +54,7 @@ const MemoizedLine = React.memo(({
           
           if (userData) {
             if (PUNCT_SET.includes(userData.char)) return <span key={absIdx} className="invisible">{userData.char}</span>;
-            return <span key={absIdx} className={userData.isMistake ? 'text-red-500 font-bold' : 'text-black'}>{userData.char}</span>;
+            return <span key={absIdx} className={`${userData.isMistake ? 'text-red-500 font-bold' : (isDarkMode ? 'text-[#e0e0e0]' : 'text-black')} transition-colors duration-300`}>{userData.char}</span>;
           }
           return <span key={absIdx} className="invisible">{targetChar}</span>;
         })}
@@ -65,6 +66,7 @@ const MemoizedLine = React.memo(({
 interface Props {
   session: TypingSession;
   isPaused: boolean;
+  isDarkMode?: boolean;
   initialHistory?: string[];
   initialKeystrokes?: number;
   initialAccumulatedTime?: number;
@@ -74,7 +76,7 @@ interface Props {
 }
 
 const TypingAreaV2: React.FC<Props> = ({ 
-  session, isPaused, initialHistory = [], initialKeystrokes = 0, initialAccumulatedTime = 0,
+  session, isPaused, isDarkMode = false, initialHistory = [], initialKeystrokes = 0, initialAccumulatedTime = 0,
   onStatsUpdate, onComplete, onPersist
 }) => {
   const [userInput, setUserInput] = useState<string>(initialHistory.join(''));
@@ -275,15 +277,12 @@ const TypingAreaV2: React.FC<Props> = ({
     const parentEl = layersRef.current;
     if (!parentEl) return;
 
-    // Use current waiting index
     const idx = targetIdxReached;
     const isAtEnd = idx >= content.length;
     
     let measureIdx = idx;
     let useRight = false;
 
-    // CORE CHANGE: If waiting at a newline, stick to the end of the current line (prev char's right).
-    // This prevents the cursor from jumping to the next line before Space/Enter is pressed.
     if (!isAtEnd && content[idx] === '\n') {
       measureIdx = Math.max(0, idx - 1);
       useRight = true;
@@ -292,11 +291,8 @@ const TypingAreaV2: React.FC<Props> = ({
       useRight = true;
     }
 
-    // Try finding the primary character element
     let charEl = document.getElementById(`char-ghost-${measureIdx}`);
     
-    // Fallback: If the element doesn't exist (e.g., waiting at start of text or middle of newlines),
-    // find the first available visible character element after the current index.
     if (!charEl && !isAtEnd) {
       let fallbackIdx = idx;
       while (fallbackIdx < content.length && !document.getElementById(`char-ghost-${fallbackIdx}`)) {
@@ -368,7 +364,6 @@ const TypingAreaV2: React.FC<Props> = ({
     
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
-      // Check if we are at a newline boundary
       while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
       
       if (ahead < content.length && content[ahead] === '\n') {
@@ -409,15 +404,15 @@ const TypingAreaV2: React.FC<Props> = ({
   return (
     <div className="h-full min-h-0 flex flex-col relative" onClick={() => !isPaused && hiddenInputRef.current?.focus()}>
       {isPaused && (
-        <div className="absolute inset-0 z-30 bg-white/40 backdrop-blur-[1px] flex items-center justify-center transition-all duration-300">
-          <div className="bg-black/5 text-black px-6 py-3 rounded-full font-bold text-sm tracking-widest uppercase">Click Resume to Continue</div>
+        <div className={`absolute inset-0 z-30 ${isDarkMode ? 'bg-black/40' : 'bg-white/40'} backdrop-blur-[1px] flex items-center justify-center transition-all duration-300`}>
+          <div className={`${isDarkMode ? 'bg-white/10 text-white' : 'bg-black/5 text-black'} px-6 py-3 rounded-full font-bold text-sm tracking-widest uppercase`}>Click Resume to Continue</div>
         </div>
       )}
       <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-4">
         <div className="relative min-h-full pb-[70vh]">
           <div ref={layersRef} className="relative w-full text-2xl leading-relaxed tracking-tight whitespace-pre-wrap break-keep text-left select-none outline-none font-medium">
             <div 
-              className={`absolute w-[2px] bg-black/60 z-20 
+              className={`absolute w-[2px] ${isDarkMode ? 'bg-white/60' : 'bg-black/60'} z-20 
                 ${isReady ? 'transition-[left,top] duration-[250ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] opacity-100' : 'opacity-0'}`} 
               style={{ 
                 top: `${cursorPos.top}px`, 
@@ -435,6 +430,7 @@ const TypingAreaV2: React.FC<Props> = ({
                 activatedPunct={activated} 
                 composingIdx={composingTargetIdx} 
                 isComposing={isComposing} 
+                isDarkMode={isDarkMode}
               />
             ))}
           </div>
