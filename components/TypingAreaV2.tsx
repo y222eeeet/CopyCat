@@ -164,8 +164,6 @@ const TypingAreaV2: React.FC<Props> = ({
     return uJamos.length >= tJamos.length;
   }, [session.language]);
 
-  // Alignment engine: O(userInput.length)
-  // Returns flat structures to avoid redundant object creations
   const alignment = useMemo(() => {
     let targetIdx = 0;
     let isLastCharComplete = false;
@@ -277,7 +275,6 @@ const TypingAreaV2: React.FC<Props> = ({
     return { start, end };
   }, [currentLineIndex, preCalculatedLines.length]);
 
-  // UI structure generation: strictly limited to windowed lines
   const windowedLineDataList = useMemo(() => {
     const list: Record<number, LineData> = {};
     for (let l = renderRange.start; l < renderRange.end; l++) {
@@ -326,6 +323,7 @@ const TypingAreaV2: React.FC<Props> = ({
   }, [targetIdxReached, content, isReady]);
 
   useLayoutEffect(updateCursorPosition, [updateCursorPosition]);
+  
   useAutoScroll({ 
     containerRef, 
     targetTop: cursorPos.top, 
@@ -334,46 +332,85 @@ const TypingAreaV2: React.FC<Props> = ({
     isPaused: isFinishedRef.current || isPaused 
   });
 
+  const getKoreanStrokeCount = useCallback((text: string) => {
+    let count = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === ' ' || char === '\n') {
+        count += 1;
+      } else {
+        count += getCachedDecomposition(char).length;
+      }
+    }
+    return count;
+  }, []);
+
   const calculateStats = useCallback((curMistakes: number, forcedEnd?: number) => {
     let elapsed = accumulatedTimeRef.current;
-    if (startTimeRef.current !== null) elapsed += (forcedEnd || Date.now()) - startTimeRef.current;
+    if (startTimeRef.current !== null) {
+      elapsed += (forcedEnd || Date.now()) - startTimeRef.current;
+    }
     const seconds = elapsed / 1000;
     if (seconds <= 0.2) return null;
 
     let speed = 0;
     if (session.language === Language.KOREAN) {
-      // Faster stat calculation for mobile
-      speed = (keystrokes / seconds) * 60;
+      // 대한민국 표준 한글 타수 계산 (자모 단위)
+      const totalStrokes = getKoreanStrokeCount(userInput);
+      speed = (totalStrokes / seconds) * 60;
     } else {
+      // 영어 WPM 계산 (5글자당 1단어)
       speed = (userInput.length / 5) / (seconds / 60);
     }
+    
     const typed = Math.min(targetIdxReached, totalCount);
     const accuracy = targetIdxReached === 0 ? 100 : Math.max(0, 100 - (curMistakes / targetIdxReached) * 100);
     return { speed: Math.min(speed, 2500), accuracy, typedCount: typed, totalCount, elapsedTime: seconds };
-  }, [session.language, totalCount, keystrokes, userInput.length, targetIdxReached]);
+  }, [session.language, totalCount, userInput, targetIdxReached, getKoreanStrokeCount]);
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isFinishedRef.current || isPaused || isJumpingRef.current) return;
-    setUserInput(e.target.value);
-    if (isMobile && !isComposing) {
-      const val = e.target.value;
-      const last = val[val.length - 1];
-      if (last === ' ') playTypingSound(' ');
-      else if (last === '\n') playTypingSound('Enter');
-      else if (val.length < userInput.length) playTypingSound('Backspace');
+    
+    if (startTimeRef.current === null) startTimeRef.current = Date.now();
+    
+    const newVal = e.target.value;
+    const oldLen = userInput.length;
+    const newLen = newVal.length;
+    
+    setUserInput(newVal);
+
+    if (isMobile) {
+      if (!isComposing && newLen > oldLen) {
+        setKeystrokes(prev => prev + (newLen - oldLen));
+      }
+      
+      if (!isComposing) {
+        const last = newVal[newVal.length - 1];
+        if (last === ' ') playTypingSound(' ');
+        else if (last === '\n') playTypingSound('Enter');
+        else if (newLen < oldLen) {
+          playTypingSound('Backspace');
+        }
+      }
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (isFinishedRef.current || isPaused) return;
+    
     if (startTimeRef.current === null) startTimeRef.current = Date.now();
+    
     if (isMobile) {
       if (e.key === 'Enter') {
         const ahead = targetIdxReached;
-        if (content[ahead] !== '\n' && content[ahead-1] !== '\n') e.preventDefault();
+        if (content[ahead] !== '\n' && (ahead > 0 && content[ahead-1] !== '\n')) e.preventDefault();
       }
-      return;
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        setKeystrokes(prev => prev + 1);
+      }
+      return; 
     }
+
     if (e.key === ' ' || e.key === 'Enter') {
       let ahead = targetIdxReached; 
       while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
@@ -390,6 +427,7 @@ const TypingAreaV2: React.FC<Props> = ({
       if (e.key === 'Backspace' || e.key === 'Delete') playTypingSound('Backspace');
       else if (e.key.length === 1) playTypingSound(e.key);
     }
+
     if (!e.nativeEvent.isComposing && !['Control', 'Alt', 'Shift', 'Meta', 'CapsLock', 'Tab', ' ', 'Enter'].includes(e.key)) {
       setKeystrokes(prev => prev + 1);
     }
@@ -398,25 +436,34 @@ const TypingAreaV2: React.FC<Props> = ({
   const handleCompStart = () => setIsComposing(true);
   const handleCompEnd = () => {
     setIsComposing(false);
-    if (isMobile) { playTypingSound('KeyA'); setKeystrokes(prev => prev + 1); }
+    if (isMobile) {
+      playTypingSound('KeyA');
+      setKeystrokes(prev => prev + 2);
+    }
   };
 
   useEffect(() => {
     if (isFinishedRef.current) return;
+    
     const finished = targetIdxReached >= content.length && isLastCharComplete && userInput.length > 0;
     if (finished) {
-      isFinishedRef.current = true; playCompletionSound();
+      isFinishedRef.current = true;
+      playCompletionSound();
       const st = calculateStats(mistakes.size, Date.now());
-      if (st) setTimeout(() => onComplete(st), 200); return;
+      if (st) setTimeout(() => onComplete(st), 200);
+      return;
     }
+
     const now = Date.now();
-    // Throttle stats updates even further on mobile
-    const throttleTime = isMobile ? 500 : 300;
+    const throttleTime = isMobile ? 400 : 300;
     if (now - lastStatsUpdateTime.current > throttleTime) {
-        const st = calculateStats(mistakes.size);
-        if (st) { onStatsUpdate(st); lastStatsUpdateTime.current = now; }
+      const st = calculateStats(mistakes.size);
+      if (st) {
+        onStatsUpdate(st);
+        lastStatsUpdateTime.current = now;
+      }
     }
-  }, [targetIdxReached, isLastCharComplete, userInput.length, mistakes.size, calculateStats, onStatsUpdate, onComplete, content.length]);
+  }, [targetIdxReached, isLastCharComplete, userInput, mistakes.size, calculateStats, onStatsUpdate, onComplete, content.length]);
 
   return (
     <div className="h-full min-h-0 flex flex-col relative" onClick={() => !isPaused && hiddenInputRef.current?.focus()}>

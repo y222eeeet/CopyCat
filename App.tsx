@@ -8,11 +8,11 @@ import { detectLanguage } from './services/hangulUtils';
 
 declare const mammoth: any;
 
-const STORAGE_KEY = 'typing_works_session_v2';
+const STORAGE_KEY = 'typing_works_session_v3';
 const SETTINGS_KEY = 'typing_works_settings';
 const THEME_KEY = 'typing_works_theme';
-const SHUFFLE_KEY_EN = 'typing_works_shuffle_pool_en_v2';
-const SHUFFLE_KEY_KO = 'typing_works_shuffle_pool_ko_v2';
+const SHUFFLE_KEY_EN = 'typing_works_shuffle_pool_en_v3';
+const SHUFFLE_KEY_KO = 'typing_works_shuffle_pool_ko_v3';
 
 const DEFAULT_SESSIONS_EN: TypingSession[] = [
   {
@@ -76,10 +76,8 @@ const getNextSessionFromPool = (lang: Language, currentContent?: string): Typing
     }
   }
 
-  // 풀이 비었거나 문제가 있을 경우 새로 생성
   if (!Array.isArray(pool) || pool.length === 0) {
     pool = Array.from({ length: sessions.length }, (_, i) => i);
-    // Fisher-Yates shuffle
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -88,13 +86,11 @@ const getNextSessionFromPool = (lang: Language, currentContent?: string): Typing
 
   let nextIndex = pool.pop() ?? 0;
   
-  // 현재 문장과 중복되는 경우 처리
   if (sessions[nextIndex]?.content === currentContent && pool.length > 0) {
     const backupIndex = nextIndex;
     nextIndex = pool.pop() ?? 0;
     pool.push(backupIndex); 
   } else if (sessions[nextIndex]?.content === currentContent && pool.length === 0) {
-    // 풀의 마지막 하나가 현재와 같으면 그냥 0번을 주거나 다른걸 찾음 (최소 2개 이상 세션 가정)
     nextIndex = (nextIndex + 1) % sessions.length;
   }
 
@@ -157,6 +153,7 @@ const App: React.FC = () => {
   
   const [isComplete, setIsComplete] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [resetKey, setResetKey] = useState(0);
 
   useEffect(() => {
@@ -249,10 +246,7 @@ const App: React.FC = () => {
   };
 
   const handleResetForNewSession = (newSession: TypingSession) => {
-    // 1. 진행 상태 삭제
     localStorage.removeItem(STORAGE_KEY);
-    
-    // 2. 모든 상태 초기화
     setInitialData({ history: [], keystrokes: 0, time: 0 });
     setStats({
       speed: 0,
@@ -261,11 +255,10 @@ const App: React.FC = () => {
       totalCount: newSession.content.replace(/\n/g, '').length,
       elapsedTime: 0
     });
-    
-    // 3. 세션 업데이트 및 UI 초기화
     setSession(newSession);
     setIsComplete(false);
     setIsPaused(false);
+    setIsTyping(false);
     setResetKey(prev => prev + 1);
   };
 
@@ -274,9 +267,7 @@ const App: React.FC = () => {
   }, [session]);
 
   const handleNextSentence = useCallback(() => {
-    // 팝업이 뜬 상태에서만 다음 문장으로 진행 (중복 클릭 방지)
     if (!isComplete) return;
-    
     const nextSession = getNextSessionFromPool(session.language, session.content);
     handleResetForNewSession(nextSession);
   }, [session.language, session.content, isComplete]);
@@ -286,16 +277,25 @@ const App: React.FC = () => {
   }, []);
 
   const handleStatsUpdate = (newStats: Stats) => {
-    if (!isComplete && !isPaused) setStats(newStats);
+    if (!isComplete && !isPaused) {
+      setStats(newStats);
+      if (newStats.typedCount > 0 && !isTyping) setIsTyping(true);
+    }
   };
 
   const handleComplete = (finalStats: Stats) => {
     setStats(finalStats);
     setIsComplete(true);
+    setIsTyping(false);
     localStorage.removeItem(STORAGE_KEY);
   };
 
-  const togglePause = () => setIsPaused(prev => !prev);
+  const togglePause = () => {
+    setIsPaused(prev => !prev);
+    if (!isPaused) setIsTyping(false);
+  };
+
+  const headerOpacity = (isTyping && !isPaused) ? 'opacity-20' : 'opacity-100';
 
   return (
     <div className={`flex flex-col h-screen transition-colors duration-300 overflow-hidden ${isDarkMode ? 'bg-[#121212] text-[#e0e0e0]' : 'bg-white text-[#333]'}`}>
@@ -303,7 +303,7 @@ const App: React.FC = () => {
 
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm px-4">
-          <div className={`${isDarkMode ? 'bg-[#1e1e1e] border-gray-800' : 'bg-white border-gray-100'} rounded-2xl w-full max-sm p-6 shadow-xl border`}>
+          <div className={`${isDarkMode ? 'bg-[#1e1e1e] border-gray-800' : 'bg-white border-gray-100'} rounded-2xl w-full max-w-sm p-6 shadow-xl border`}>
             <h3 className={`text-xs font-bold uppercase tracking-widest ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-6`}>Settings</h3>
             <div className="flex items-center justify-between mb-8">
               <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Remember progress</span>
@@ -317,7 +317,7 @@ const App: React.FC = () => {
       )}
 
       <main className="flex-1 min-h-0 flex flex-col max-w-6xl mx-auto w-full px-6 pt-6">
-        <div className="flex flex-col gap-6 mb-4">
+        <div className={`flex flex-col gap-6 mb-4 transition-opacity duration-700 ${headerOpacity}`}>
           <div className="flex justify-end items-center gap-4">
             <button onClick={handleUploadClick} className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-black'}`}>Upload</button>
             <button onClick={handleReset} className={`text-[11px] font-bold uppercase tracking-widest transition-colors ${isDarkMode ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-black'}`}>Reset</button>
@@ -343,7 +343,7 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
-        <StatsBar stats={stats} language={session.language} isPaused={isPaused} />
+        <StatsBar stats={stats} language={session.language} isPaused={isPaused} isTyping={isTyping} />
         <div className="mt-8 flex-1 min-h-0 overflow-hidden">
           <TypingAreaV2 
             key={`${resetKey}-${session.filename}`}

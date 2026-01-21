@@ -6,30 +6,32 @@ interface Props {
   stats: Stats;
   language: Language;
   isPaused: boolean;
+  isTyping: boolean;
 }
 
-const StatsBar: React.FC<Props> = ({ stats, language, isPaused }) => {
+const StatsBar: React.FC<Props> = ({ stats, language, isPaused, isTyping }) => {
   const progress = stats.totalCount > 0 ? (stats.typedCount / stats.totalCount) * 100 : 0;
+  const labelOpacity = (isTyping && !isPaused) ? 'opacity-30' : 'opacity-100';
 
   return (
-    <div className="w-full select-none flex flex-col gap-0.5">
+    <div className="w-full select-none flex flex-col gap-0.5 transition-opacity duration-500">
       <div className="flex justify-start gap-8 items-end">
         <div className="flex items-baseline gap-1.5">
-          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>Speed</span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest transition-opacity duration-500 ${labelOpacity} ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>Speed</span>
           <span className={`text-xl font-bold transition-colors ${isPaused ? 'text-gray-400 dark:text-gray-600' : 'text-black dark:text-white'}`}>
             {Math.round(stats.speed)}
           </span>
-          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>
+          <span className={`text-[10px] font-bold uppercase tracking-widest transition-opacity duration-500 ${labelOpacity} ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>
             {language === Language.KOREAN ? '타/분' : 'WPM'}
           </span>
         </div>
         
         <div className="flex items-baseline gap-1.5">
-          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>Accuracy</span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest transition-opacity duration-500 ${labelOpacity} ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>Accuracy</span>
           <span className={`text-xl font-bold transition-colors ${isPaused ? 'text-gray-400 dark:text-gray-600' : 'text-black dark:text-white'}`}>
             {Math.round(stats.accuracy)}
           </span>
-          <span className={`text-[10px] font-bold uppercase tracking-widest ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>%</span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest transition-opacity duration-500 ${labelOpacity} ${isPaused ? 'text-gray-500' : 'text-[#D1D5DB] dark:text-gray-500'}`}>%</span>
         </div>
       </div>
 

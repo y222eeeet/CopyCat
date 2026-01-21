@@ -30,13 +30,14 @@ export const useAutoScroll = ({
     const startTop = container.scrollTop;
     const distance = destinationTop - startTop;
 
+    // Mobile needs even snappier scrolling to feel responsive
     if (Math.abs(distance) < 0.5) {
       container.scrollTop = destinationTop;
       return;
     }
 
     const startTime = performance.now();
-    const duration = isMobile ? 200 : 300; // Faster scroll for mobile to keep up with typing
+    const duration = isMobile ? 180 : 300; 
 
     const step = (now: number) => {
       const elapsed = now - startTime;
@@ -68,21 +69,21 @@ export const useAutoScroll = ({
 
     if (isMobile) {
       // 3번째 줄(index 2)부터 스크롤 시작
-      // 줄 높이가 대략 40px이므로, 3번째 줄이 화면 상단 근처에 오도록 고정
+      // targetHeight는 보통 40px (leading-relaxed)
       if (currentLineIndex >= 2) {
-        // 현재 줄의 top 위치에서 상단 여백(줄 2개 정도의 높이)을 뺀 지점으로 스크롤
-        // 이렇게 하면 현재 입력줄이 항상 화면 상단에서 3번째 위치 정도에 고정됨
+        // 정확히 2줄만큼의 높이를 상단 여백으로 남기고 고정
+        // targetTop은 현재 줄의 절대 위치
         nextScrollTop = targetTop - (targetHeight * 2);
         
-        if (Math.abs(nextScrollTop - currentScroll) > 2) {
+        // 오차 범위를 0.5px로 줄여 아주 미세한 움직임도 즉각 반영 (자석 고정 효과)
+        if (Math.abs(nextScrollTop - currentScroll) > 0.5) {
           performSmoothScroll(Math.max(0, nextScrollTop));
         }
       } else {
-        // 1, 2번째 줄일 때는 스크롤을 0으로 유지
-        if (currentScroll > 5) performSmoothScroll(0);
+        if (currentScroll > 1) performSmoothScroll(0);
       }
     } else {
-      // PC: 기존의 안전 영역(Safe Zone) 방식 유지
+      // PC: Safe Zone logic with smoother clamping
       const topPadding = viewportHeight * 0.20;
       const bottomPadding = viewportHeight * 0.35;
 
