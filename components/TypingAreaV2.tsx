@@ -61,6 +61,8 @@ const MemoizedLine = React.memo(({
           
           return <span id={`char-ghost-${lineOffset + cIdx}`} key={cIdx} style={{ color }}>{char}</span>;
         })}
+        {/* Anchor for cursor at the end of the line or newline char */}
+        <span id={`char-ghost-${lineOffset + chars.length}`} className="inline-block w-0 h-10 invisible align-top" />
       </div>
       <div className="relative w-full z-10 pointer-events-none">
         {chars.map((_, cIdx) => {
@@ -129,7 +131,7 @@ const TypingAreaV2: React.FC<Props> = ({
     
     lines.forEach((line, idx) => {
       result.push({ line, lineOffset: offset, length: line.length });
-      for (let i = 0; i < line.length + 1; i++) {
+      for (let i = 0; i <= line.length; i++) {
         if (offset + i < content.length) charMap[offset + i] = idx;
       }
       offset += line.length + 1;
@@ -193,14 +195,20 @@ const TypingAreaV2: React.FC<Props> = ({
     for (let i = 0; i < inputLen; i++) {
       const u = userInput[i];
       const isLast = i === inputLen - 1;
-      const isInputting = isLast && (isMobile || isComposing);
+      const isActuallyComposing = isLast && isComposing;
+      // Triggers for line/paragraph jumps
+      const isTrigger = u === ' ' || u === '\n';
 
       skipPunct();
 
-      if (!isInputting && (u === ' ' || u === '\n')) {
+      // NEW: Improved jumping logic to consume all sequential newlines immediately on trigger
+      if (isTrigger && (!isActuallyComposing || isMobile)) {
         let ahead = targetIdx;
+        // Check if we are at or near a line break
         while (ahead < content.length && content[ahead] !== '\n' && (PUNCT_SET.includes(content[ahead]) || content[ahead] === ' ')) ahead++;
+        
         if (ahead < content.length && content[ahead] === '\n') {
+          // If we hit a newline, jump over it and all subsequent newlines
           while (targetIdx < ahead) {
             if (PUNCT_SET.includes(content[targetIdx])) activatedIndices.add(targetIdx);
             targetIdx++;
@@ -209,20 +217,20 @@ const TypingAreaV2: React.FC<Props> = ({
           skipPunct();
           if (isLast) isLastCharComplete = true;
           continue;
+        } else if (content[targetIdx] === ' ' || content[targetIdx] === '\n') {
+          // Normal word space
+          targetIdx++;
+          while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
+          skipPunct();
+          if (isLast) isLastCharComplete = true;
+          continue;
         } else {
-          if (content[targetIdx] === ' ' || content[targetIdx] === '\n') {
-            targetIdx++;
-            while (targetIdx < content.length && content[targetIdx] === '\n') targetIdx++;
-            skipPunct();
-            if (isLast) isLastCharComplete = true;
-            continue;
-          } else {
-            mistakes.add(targetIdx);
-            userCharMapping.set(targetIdx, { char: u, isMistake: true });
-            targetIdx++;
-            if (isLast) isLastCharComplete = true;
-            continue;
-          }
+          // Mismatched space - mark mistake and advance
+          mistakes.add(targetIdx);
+          userCharMapping.set(targetIdx, { char: u, isMistake: true });
+          targetIdx++;
+          if (isLast) isLastCharComplete = true;
+          continue;
         }
       }
 
@@ -233,9 +241,9 @@ const TypingAreaV2: React.FC<Props> = ({
       if (isKO) isCorrect = isJamoPrefix(u, t, content[targetIdx + 1]);
       else isCorrect = (u.toLowerCase() === t.toLowerCase());
 
-      const isM = isKO ? (isInputting ? (isMobile ? false : !isCorrect) : u !== t) : !isCorrect;
+      const isM = isKO ? (isActuallyComposing ? (isMobile ? false : !isCorrect) : u !== t) : !isCorrect;
       if (isM) mistakes.add(targetIdx);
-      if (isInputting) composingTargetIdx = targetIdx;
+      if (isActuallyComposing) composingTargetIdx = targetIdx;
 
       let display = u;
       if (!isKO && !isM && t === t.toUpperCase() && t !== t.toLowerCase()) display = t;
@@ -244,7 +252,7 @@ const TypingAreaV2: React.FC<Props> = ({
       if (!isM) {
         activateWordPunct(targetIdx);
         const complete = isKO ? isSufficientlyCompleted(u, t) : true;
-        const committed = isBodyChar(t) ? complete : !isInputting;
+        const committed = isBodyChar(t) ? complete : !isActuallyComposing;
         targetIdx++;
         if (committed) {
           skipPunct();
@@ -269,8 +277,8 @@ const TypingAreaV2: React.FC<Props> = ({
   }, [targetIdxReached, charToLineMap, preCalculatedLines.length]);
 
   const renderRange = useMemo(() => {
-    const start = Math.max(0, currentLineIndex - 8);
-    const end = Math.min(preCalculatedLines.length, currentLineIndex + 12);
+    const start = Math.max(0, currentLineIndex - (isMobile ? 10 : 100));
+    const end = Math.min(preCalculatedLines.length, currentLineIndex + (isMobile ? 20 : 60));
     return { start, end };
   }, [currentLineIndex, preCalculatedLines.length]);
 
@@ -305,21 +313,19 @@ const TypingAreaV2: React.FC<Props> = ({
     const parentEl = layersRef.current;
     if (!parentEl) return;
     const idx = targetIdxReached;
-    const isAtEnd = idx >= content.length;
-    let measureIdx = Math.min(content.length - 1, idx);
-    let useRight = isAtEnd || (!isAtEnd && content[idx] === '\n');
-    if (isAtEnd && content.length > 0) measureIdx = content.length - 1;
-
-    const charEl = document.getElementById(`char-ghost-${measureIdx}`);
+    
+    // Find ghost element - ensure we use the anchor for empty lines/newlines correctly
+    const charEl = document.getElementById(`char-ghost-${idx}`);
     if (charEl) {
       const rect = charEl.getBoundingClientRect();
       const parentRect = parentEl.getBoundingClientRect();
       const top = rect.top - parentRect.top;
-      const left = useRight ? (rect.right - parentRect.left) : (rect.left - parentRect.left);
-      setCursorPos({ top, left, height: rect.height });
+      const left = rect.left - parentRect.left;
+      
+      setCursorPos({ top, left, height: rect.height || 40 });
       if (!isReady) requestAnimationFrame(() => setIsReady(true));
     }
-  }, [targetIdxReached, content, isReady]);
+  }, [targetIdxReached, isReady]);
 
   useLayoutEffect(updateCursorPosition, [updateCursorPosition]);
   
@@ -417,7 +423,6 @@ const TypingAreaV2: React.FC<Props> = ({
       return;
     }
     const now = Date.now();
-    // Throttle reduced to match the linear animation frame for maximum smoothness
     const throttleTime = isMobile ? 250 : 200;
     if (now - lastStatsUpdateTime.current > throttleTime) {
       const st = calculateStats(mistakes.size);
@@ -440,7 +445,7 @@ const TypingAreaV2: React.FC<Props> = ({
           <div ref={layersRef} className="relative w-full text-[25px] leading-[40px] tracking-[-0.02em] whitespace-pre-wrap break-keep text-left select-none outline-none font-light">
             <div 
               className={`absolute w-[2px] ${isDarkMode ? 'bg-white/60' : 'bg-black/60'} z-20 
-                ${isReady ? 'transition-[left,top] duration-[180ms] ease-out opacity-100' : 'opacity-0'}`} 
+                ${isReady ? 'transition-[left,top] duration-[220ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] opacity-100' : 'opacity-0'}`} 
               style={{ top: `${cursorPos.top}px`, left: `${cursorPos.left}px`, height: `${cursorPos.height || 40}px`, visibility: (isFinishedRef.current || !isReady || isPaused) ? 'hidden' : 'visible' }} 
             />
             {preCalculatedLines.slice(0, renderRange.start).map((_, i) => <div key={`s-up-${i}`} style={{ height: '40px' }} />)}

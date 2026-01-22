@@ -20,6 +20,7 @@ export const useAutoScroll = ({
   isPaused = false
 }: AutoScrollOptions) => {
   const scrollAnimRef = useRef<number | null>(null);
+  const prevLineIndexRef = useRef<number>(currentLineIndex);
 
   const performSmoothScroll = useCallback((destinationTop: number) => {
     const container = containerRef.current;
@@ -30,20 +31,22 @@ export const useAutoScroll = ({
     const startTop = container.scrollTop;
     const distance = destinationTop - startTop;
 
-    // Mobile needs even snappier scrolling to feel responsive
-    if (Math.abs(distance) < 0.5) {
+    // Small threshold to prevent micro-animations and jitter
+    if (Math.abs(distance) < 0.8) {
       container.scrollTop = destinationTop;
       return;
     }
 
     const startTime = performance.now();
-    const duration = isMobile ? 180 : 300; 
+    // PC uses a slightly longer duration for more "weighty" and smooth feeling, synchronized with cursor ease
+    const duration = isMobile ? 180 : 350; 
 
     const step = (now: number) => {
       const elapsed = now - startTime;
       const progress = Math.min(elapsed / duration, 1);
       
-      const ease = 1 - Math.pow(1 - progress, 3);
+      // Quintic ease-out for extremely smooth deceleration
+      const ease = 1 - Math.pow(1 - progress, 4);
       container.scrollTop = startTop + (distance * ease);
 
       if (progress < 1) {
@@ -64,45 +67,35 @@ export const useAutoScroll = ({
 
     const viewportHeight = container.clientHeight;
     const currentScroll = container.scrollTop;
+    const lineChanged = currentLineIndex !== prevLineIndexRef.current;
     
     let nextScrollTop = currentScroll;
 
     if (isMobile) {
-      // 3번째 줄(index 2)부터 스크롤 시작
-      // targetHeight는 보통 40px (leading-relaxed)
+      // Mobile: Keep original scrolling logic but ensure it triggers smoothly
       if (currentLineIndex >= 2) {
-        // 정확히 2줄만큼의 높이를 상단 여백으로 남기고 고정
-        // targetTop은 현재 줄의 절대 위치
         nextScrollTop = targetTop - (targetHeight * 2);
-        
-        // 오차 범위를 0.5px로 줄여 아주 미세한 움직임도 즉각 반영 (자석 고정 효과)
-        if (Math.abs(nextScrollTop - currentScroll) > 0.5) {
+        if (Math.abs(nextScrollTop - currentScroll) > 1.0) {
           performSmoothScroll(Math.max(0, nextScrollTop));
         }
-      } else {
-        if (currentScroll > 1) performSmoothScroll(0);
+      } else if (currentScroll > 1) {
+        performSmoothScroll(0);
       }
     } else {
-      // PC: Safe Zone logic with smoother clamping
-      const topPadding = viewportHeight * 0.20;
-      const bottomPadding = viewportHeight * 0.35;
-
-      const safeTopBoundary = currentScroll + topPadding;
-      const safeBottomBoundary = currentScroll + viewportHeight - bottomPadding;
-
-      if (targetTop < safeTopBoundary) {
-        nextScrollTop = targetTop - topPadding;
-      } else if (targetTop + targetHeight > safeBottomBoundary) {
-        nextScrollTop = targetTop + targetHeight - (viewportHeight - bottomPadding);
-      }
-
-      nextScrollTop = Math.max(0, nextScrollTop);
-
-      if (Math.abs(nextScrollTop - currentScroll) > 1) {
-        performSmoothScroll(nextScrollTop);
+      // PC: Scroll ONLY when the line changes (due to Enter or Space trigger)
+      // This prevents the cursor from "floating" while typing inside a line
+      if (lineChanged || currentLineIndex === 0) {
+        const topOffset = viewportHeight * 0.25;
+        nextScrollTop = Math.max(0, targetTop - topOffset);
+        
+        if (Math.abs(nextScrollTop - currentScroll) > 1.5) {
+          performSmoothScroll(nextScrollTop);
+        }
       }
     }
-  }, [targetTop, targetHeight, currentLineIndex, isPaused, performSmoothScroll, containerRef]);
+    
+    prevLineIndexRef.current = currentLineIndex;
+  }, [currentLineIndex, targetTop, targetHeight, isPaused, performSmoothScroll, containerRef]);
 
   useEffect(() => {
     return () => {
